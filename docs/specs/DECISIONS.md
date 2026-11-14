@@ -11,7 +11,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - Status is one of `unverified`, `verified`, `superseded`, `retracted`. Scope is one of `family`, `caregiver`. There is no `private` scope ([A17]).
 - [R11] `review.state: pending` is the review queue's source of truth; `flagged` is a UI hint only.
 - [A14] Each review candidate is `{memory_id, supersedes: bool, rerank_score}`. `proposed_supersedes` is the top-ranked candidate with `supersedes: true`, or null.
-- [R6, D-A7] `turns` is `{schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], top_rerank_score, min_rerank_score, degraded, answer}`, indexed `{person_id: 1, at: -1}` (migration 005). Empty recalls are logged too, with the best score and the cutoff, so the trace explains "I'm not sure". Time-series turns stay in NEXT_STEPS.
+- [R6, D-A7] `turns` is `{schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], top_rerank_score, min_rerank_score, degraded, answer}`, indexed `{person_id: 1, at: -1}` (migration 005). Empty recalls are logged too, with the best score and the cutoff, so the trace explains "I'm not sure". Time-series turns stay in the root README Next steps.
 - [R10] Audit actions: `write` on create; `approve` or `deny` on a review decision; `verify` when confirm has no proposed supersede. `audit_log` includes `person_id` and is indexed `{person_id: 1, at: -1}`.
 - [R12] Embeddings are voyage-3.5, 1024 dims, cosine; `input_type` is `document` on write and `query` on recall. The Python seed stays as dev tooling, with this config in one documented constant set.
 - [R7] Never store an empty embedding when the embed can run before the insert, and never copy `key` or `review` onto a new doc. Do not port `queries.js` `correct()` or `retrieveFallback()` as they are.
@@ -77,7 +77,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [A8] Mica owns the project spec. The ElevenLabs integration is built by another teammate from the spec, so the tool contract above must stay complete and standalone.
 - [R9] Scenario tests run against `MONGODB_DB=keepsake_test` with its own `memory_vec` index, never the demo DB. `seed.py` upserts demo logins into `people`.
 - [D3] The MVP has no leakage test.
-- [D6] Deferred items go in `docs/NEXT_STEPS.md` (see also the "Out of scope" section of `SPEC-memory.md`): Margaret's `remember` tool ([A16]), leakage test, `kind`, live push notifications, an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.
+- [D6] Deferred items go in the root README Next steps section: the person's `remember` tool ([A16]), leakage test, `kind`, live push notifications, related/unrelated labels, time-series turns. The Gemini classify judge is on `main` (it only adds supersedes). Implied contradictions and `JUDGE_MIN` 0.4 are still on `fix/classify-contradiction`.
 - [D7] Follow MongoDB best practices.
 
 ## Open questions
@@ -104,6 +104,6 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [R5] Recall included unverified memories tagged with status, and the prompt said "you mentioned" for them. Replaced by [D-A1].
 - The trace for caregivers in their own scopes (SPEC role table). Replaced by [D-A2].
 - [R4] Memories Margaret created herself had scope `family`, were unverified and flagged, never proposed a supersede, and private wishes stayed private and verified. Replaced by [A16] (Margaret does not add memories in the MVP).
-- [A8] The voice contract included a `remember {text, private?}` tool. Replaced by [A16]; `remember` moves to `docs/NEXT_STEPS.md`.
+- [A8] The voice contract included a `remember {text, private?}` tool. Replaced by [A16]; `remember` is in the root README Next steps.
 - [R24] Classify excluded `private`-scope memories unless the writer was the person. Replaced by [A17] (there is no `private` scope).
 - Readable scopes used to include `private` for the person. Replaced by [A17].

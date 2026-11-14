@@ -45,7 +45,7 @@ classify(text, person_id): embed as a document, then `$vectorSearch` candidates 
 
 - **Caregiver adds:** the memory is saved unverified with review pending, proposed_supersedes and candidates set, and flagged true. The caregiver's response lists only candidates in the caregiver's readable scopes.
 - **One add endpoint (A15):** family and caregiver adds both go through `POST /api/memories`. The author (`source: {user_id, name, role}`) comes from the session and `households.members`, never from the request body (R1). The response and the review card show who added it ("from: Ravi (caregiver)").
-- **Margaret does not add memories in the MVP (A16).** No remember tool. Moved to NEXT_STEPS.
+- **The person does not add memories in the MVP (A16).** No remember tool. See Next steps in the root README.
 - **Family adds or corrects:** if classify proposes a supersede, the response is `{needs_confirmation: true, old:{memory_id, text, author_name, created_at}}`. The UI shows "Are you sure? This will supersede <old>". Resending with `confirm: true` and `confirm_supersedes: <old memory_id>` saves it verified (the server rejects with 409 if classify no longer proposes that id or the old memory is no longer verified; R21), marks the old memory superseded and writes audit approve, all in one transaction. With no supersede, the memory is saved verified.
 - **Review queue (family only):** all pending reviews, each with the old memory looked up (text, author, date) so the card can say "This will supersede <old>". Every candidate is visible here (family can read both remaining scopes).
 - **Confirm (family):** in one transaction, the new memory becomes verified with review approved and supersedes set; the old one becomes superseded; audit approve. With no proposal, it's a plain verify.
@@ -65,5 +65,6 @@ classify(text, person_id): embed as a document, then `$vectorSearch` candidates 
 ## Household members
 Only the family admin adds or removes members (not built yet: the old `backend/` `POST /users` was removed when the user service moved into Next.js). That is the admin's only extra power.
 
-## Out of scope (NEXT_STEPS)
-Leakage test, `kind` field, caregiver trace access, per-household timezone, turns retention, live push notifications (change streams), an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.
+## Out of scope
+
+Deferred work is listed once, under Next steps in the root README.
