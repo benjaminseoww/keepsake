@@ -82,9 +82,7 @@
           "radio_classical_pending",
           "ravi_newspaper_pending",
           "cardigan_pending",
-          "garbage_neighbour_pending",
-          "ruth_unverified",
-          "maple_unverified"
+          "garbage_neighbour_pending"
         ],
         "queue_excludes": [
           "key_doormat_denied",
@@ -111,8 +109,8 @@
       }
     },
     {
-      "id": "A07_person_statement_no_override",
-      "existing": "maple_unverified",
+      "id": "A07_deny_seeded_not_superseding",
+      "existing": "ravi_newspaper_pending",
       "reviewer": {
         "as": "anna",
         "decision": "deny"
@@ -121,7 +119,7 @@
         "new_status": "retracted",
         "old_status": "verified"
       },
-      "note": "maple_unverified lists address as a candidate with supersedes false. Denying it leaves the address untouched."
+      "note": "ravi_newspaper_pending lists ravi_weekdays as a candidate with supersedes false. Denying it leaves the weekday visit routine untouched."
     },
     {
       "id": "A08_family_non_admin_can_confirm",
