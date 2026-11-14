@@ -3,6 +3,16 @@
 // 1. review.candidates[].label -> review.candidates[].supersedes (bool)
 // 2. drop the TTL index on expires_at and the field on existing memories
 
+// New validator first, at "moderate" so old-shape docs can still be converted.
+const js = db.getCollectionInfos({ name: "memories" })[0].options.validator.$jsonSchema;
+const items = js.properties.review.properties.candidates.items;
+items.required = ["memory_id", "supersedes"];
+delete items.properties.label;
+items.properties.supersedes = { bsonType: "bool" };
+items.properties.rerank_score = { bsonType: ["double", "int", "null"] };
+db.runCommand({ collMod: "memories", validator: { $jsonSchema: js }, validationLevel: "moderate", validationAction: "error" });
+print("validator updated");
+
 const res = db.memories.updateMany(
   { "review.candidates.label": { $exists: true } },
   [{ $set: { "review.candidates": { $map: {
@@ -12,14 +22,8 @@ const res = db.memories.updateMany(
 );
 print(`candidates converted on ${res.modifiedCount} memories`);
 
-const js = db.getCollectionInfos({ name: "memories" })[0].options.validator.$jsonSchema;
-const items = js.properties.review.properties.candidates.items;
-items.required = ["memory_id", "supersedes"];
-delete items.properties.label;
-items.properties.supersedes = { bsonType: "bool" };
-items.properties.rerank_score = { bsonType: ["double", "int", "null"] };
-db.runCommand({ collMod: "memories", validator: { $jsonSchema: js }, validationLevel: "strict", validationAction: "error" });
-print("validator updated");
+db.runCommand({ collMod: "memories", validationLevel: "strict" });
+print("validation back to strict");
 
 db.memories.getIndexes().filter(i => i.expireAfterSeconds !== undefined).forEach(i => { db.memories.dropIndex(i.name); print(`dropped TTL index ${i.name}`); });
 const un = db.memories.updateMany({ expires_at: { $exists: true } }, { $unset: { expires_at: "" } });
