@@ -2,7 +2,7 @@
 
 Family-governed memory for a person with early dementia. A voice agent answers from memories that family can verify, correct, scope and supersede.
 
-**Live demo: [keepsake-rouge.vercel.app](https://keepsake-rouge.vercel.app/)**. Sign in as `margaret@keepsake.test` (voice), `anna@keepsake.test` (family) or `ravi@keepsake.test` (caregiver), password `keepsake`. Use Chrome and allow the microphone.
+**Live demo: [keepsake-rouge.vercel.app](https://keepsake-rouge.vercel.app/)**
 
 Built for the [Memory You Can Govern](https://cerebralvalley.ai/e/mongodb-toronto-hackathon/details) track at [Agents in Context Toronto](https://cerebralvalley.ai/e/mongodb-toronto-hackathon) (MongoDB, 14 Nov 2026). The official track brief is quoted in [docs/demo.md](docs/demo.md).
 
