@@ -6,13 +6,11 @@ Built for the [Memory You Can Govern](https://cerebralvalley.ai/e/mongodb-toront
 
 ## Project Description
 
-People with early dementia often lose recent events first: who is coming, what was already said, what changed. An agent that stores whatever it hears and repeats it back can make that worse.
+Early dementia usually takes the newest memories first, like who's coming over today or what you told someone ten minutes ago. An agent that remembers everything it hears and repeats it back can make that worse, because one wrong detail gets said again and again.
 
-Keepsake is a voice agent for the person, plus a family review screen. Family own the memory. They verify new notes, correct or forget wrong ones, set scope (`family` or `caregiver`), and confirm when a new note should supersede an old one. The person talks to the agent by voice (ElevenLabs). The agent answers only from verified memories, so a correction changes the next answer.
+Keepsake is a voice agent for the person, plus a family review screen. Family own the memory. They verify new notes, correct or forget wrong ones, set scope (family or caregiver), and confirm when a new note should supersede an old one. The person talks to the agent by voice (ElevenLabs). The agent answers only from verified memories, so a correction changes the next answer.
 
-A caregiver can add a shift note. It stays unverified until family review, and the caregiver only sees caregiver-scope memories.
-
-The demo household is invented: Margaret (person), Anna (family, admin), David (family), Ravi (caregiver). The app is not hardcoded to those names.
+Caregivers can add shift notes, but those stay unverified until the family reviews them. Caregivers also only see notes the family has shared with caregivers.
 
 ## Features
 
