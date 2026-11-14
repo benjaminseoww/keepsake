@@ -9,7 +9,7 @@ import { DEGRADED, score, when } from "./format";
 
 const POLL_MS = 3000;
 
-// Polls so a question Margaret just asked appears on the family's screen without a refresh.
+// Polls so a question she just asked appears on the family's screen without a refresh.
 export function TurnList({ initial }: { initial: TurnSummary[] }) {
   const [turns, setTurns] = useState(initial);
 
@@ -29,7 +29,7 @@ export function TurnList({ initial }: { initial: TurnSummary[] }) {
   }, []);
 
   if (!turns.length) {
-    return <p className="rounded-2xl border border-dashed px-6 py-10 text-center text-muted-foreground">No questions yet. When Margaret asks something, it shows up here.</p>;
+    return <p className="rounded-2xl border border-dashed px-6 py-10 text-center text-muted-foreground">No questions yet. When she asks something, it shows up here.</p>;
   }
 
   return (

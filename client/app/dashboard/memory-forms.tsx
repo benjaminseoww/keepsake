@@ -82,7 +82,7 @@ export function AddMemoryForm({ personName, scopes, caregiver }: { personName?: 
     <form action={action} className="space-y-4">
       <div className="grid gap-2">
         <Label htmlFor="new-text">{caregiver ? `What should ${personName} know?` : `What should ${personName} remember?`}</Label>
-        <Textarea id="new-text" name="text" required rows={3} placeholder={caregiver ? "Reading glasses are on the bedside table now" : "Anna is bringing dinner at 6 tonight"} />
+        <Textarea id="new-text" name="text" required rows={3} placeholder={caregiver ? "Reading glasses are on the bedside table now" : "Her daughter is bringing dinner at 6 tonight"} />
       </div>
       {!caregiver && (
         <div className="grid gap-2">

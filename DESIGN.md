@@ -20,7 +20,7 @@ Light only. Warm cream canvas, plum-brown ink, one dusty-rose accent.
 
 ## Type
 
-- Display: **Instrument Serif** (regular + italic). Headlines, greetings, memory text on the talk screen. Italic rose for the one word that carries the feeling ("moments", "Margaret").
+- Display: **Instrument Serif** (regular + italic). Headlines, greetings, memory text on the talk screen. Italic rose for the one word that carries the feeling ("moments", "remembering").
 - Body/UI: **Geist Sans**.
 - Eyebrows: 11px uppercase, `tracking-[0.2em]`, rose or muted.
 

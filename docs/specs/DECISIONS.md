@@ -37,7 +37,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [R6, R17] Every recall writes a `turns` doc and returns `turn_id`. The client posts the spoken answer to `POST /api/turns/:id/answer`.
 - [A5] The trace (`GET /api/turns`, newest first, and `GET /api/turns/:id`) shows the question, the answer, and for each memory who added it, when, its status and its scores.
 - [D-A2] The trace is family only for the MVP; caregivers get 403. An answer can paraphrase a family-scope memory, so filtering results alone would leak.
-- [D5, A11, R13] The agent prompt is hardcoded (`client/lib/prompt.ts`) and includes today's date, the husband rule, no medical advice, and topic guidance written inline. Answer only from recall results; with none, say you are not sure and suggest asking family. Do not read the `topic_guidance` collection.
+- [D5, A11, R13] The agent prompt lives in `client/lib/prompt.ts` and includes today's date and no medical advice. Answer only from recall results; with none, say you are not sure and suggest asking family. Topic guidance is read from the `topic_guidance` collection for the signed-in person in `/api/talk/session` and passed as the `{{topic_guidance}}` dynamic variable. Family edits on the dashboard take effect on the next session.
 
 ## Write path
 
@@ -97,7 +97,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [Q2]–[Q6] Answered by [A2]–[A6], with [A12] amending the admin-only parts of [A3] and [A6].
 - [Q7] Answered by [A10]: no expiry.
 - [Q8] Answered by [A9]: all memory logic is in the Next.js client.
-- [Q9] Answered by [A11]: topic guidance is hardcoded in the prompt ([D5] stands).
+- [Q9] Originally answered by [A11]: topic guidance hardcoded in the prompt. Superseded: `/api/talk/session` now reads `topic_guidance` and injects `{{topic_guidance}}`.
 - The brief and early demo flow said family can "expire" memories, the system labels "supersedes/related/unrelated", and only the family admin confirms. Replaced by [A10], [A14] and [A12].
 - [R5] Recall included unverified memories tagged with status, and the prompt said "you mentioned" for them. Replaced by [D-A1].
 - The trace for caregivers in their own scopes (SPEC role table). Replaced by [D-A2].

@@ -128,7 +128,7 @@ export async function classify(text: string, person_id: string, _writer: Writer,
 async function geminiJudge(text: string, candidates: { text: string }[]): Promise<boolean[]> {
   const list = candidates.map((c, i) => `${i}. ${c.text}`).join("\n");
   const out = await generateJson<{ supersedes: boolean[] }>(
-    `A new note about Margaret was written. For each existing note, answer true only if the new note replaces it (the same fact or event with a new value, time or place). Different events on the same day, or additions, are false.\n\nNew note: """${text}"""\n\nExisting notes:\n${list}\n\nReturn one boolean per existing note, in order.`,
+    `A new note about this person was written. For each existing note, answer true only if the new note replaces it (the same fact or event with a new value, time or place). Different events on the same day, or additions, are false.\n\nNew note: """${text}"""\n\nExisting notes:\n${list}\n\nReturn one boolean per existing note, in order.`,
     { type: "OBJECT", properties: { supersedes: { type: "ARRAY", items: { type: "BOOLEAN" } } }, required: ["supersedes"] },
   );
   return out.supersedes;

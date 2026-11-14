@@ -60,7 +60,7 @@ classify(text, person_id): embed as a document, then `$vectorSearch` candidates 
 ## Voice agent contract (for the ElevenLabs teammate)
 - Client tool: `recall {query}` (the client adds `conversation_id`) returns `{turn_id, memories[{text, status, added_on, source:{role, name}}]}`. There is no `remember` tool in the MVP (A16). Full contract: `docs/api-reads.yaml`.
 - After the agent answers, call `POST /api/turns/:turn_id/answer` (done in `client/app/talk/voice.tsx`).
-- Prompt: `client/lib/prompt.ts`. Today's date (`{{today}}`, America/Toronto, from `/api/talk/session`; D-A5); answer only from recall results; read "today" in a memory against its `added_on`; attribute facts with `source.name`; with no results, say you're not sure and suggest asking family; no medical advice; topic guidance written inline (D5). The `topic_guidance` collection is no longer read.
+- Prompt: `client/lib/prompt.ts`. Today's date (`{{today}}`, America/Toronto, from `/api/talk/session`; D-A5); answer only from recall results; read "today" in a memory against its `added_on`; attribute facts with `source.name`; with no results, say you're not sure and suggest asking family; no medical advice. Topic guidance is loaded from the `topic_guidance` collection for the signed-in person and passed as `{{topic_guidance}}` (one `- topic: guidance` line per row, or `None.`). Dashboard edits apply on the next session.
 
 ## Household members
 Only the family admin adds or removes members (backend `POST /users`, requireFamilyAdmin). That is the admin's only extra power.

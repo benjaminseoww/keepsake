@@ -40,7 +40,7 @@ function VoiceCard() {
           <Sun className="size-4 text-primary/70" aria-hidden />
         </div>
         <p className="font-serif text-3xl leading-tight">
-          Good morning,<br /><em className="text-primary">Margaret.</em>
+          Good morning,<br /><em className="text-primary">Mom.</em>
         </p>
         <div className="flex items-center gap-3 rounded-xl bg-secondary px-4 py-3">
           <Mic className="size-4 text-primary" aria-hidden />
@@ -53,7 +53,7 @@ function VoiceCard() {
         </div>
         <div className="space-y-2">
           <p className="flex items-center gap-1.5 text-xs text-primary"><Sparkles className="size-3.5" aria-hidden /> A gentle answer, from your people</p>
-          <p className="font-serif text-xl leading-snug">Ravi is coming at 10, and Anna is bringing dinner at 6.</p>
+          <p className="font-serif text-xl leading-snug">Your caregiver is coming at 10, and your daughter is bringing dinner at 6.</p>
         </div>
         <Separator />
         <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -133,7 +133,7 @@ export default function Landing() {
             </div>
             <div className="flex flex-wrap items-center gap-3 pt-4 text-sm text-muted-foreground">
               <div className="flex -space-x-2" aria-hidden>
-                {[["A", "bg-secondary"], ["M", "bg-[#e7efe8]"], ["R", "bg-[#f3e9dc]"]].map(([l, bg]) => (
+                {[["Y", "bg-secondary"], ["F", "bg-[#e7efe8]"], ["C", "bg-[#f3e9dc]"]].map(([l, bg]) => (
                   <Avatar key={l} className="size-8 ring-2 ring-background"><AvatarFallback className={`${bg} font-serif text-foreground`}>{l}</AvatarFallback></Avatar>
                 ))}
               </div>
@@ -215,9 +215,9 @@ export default function Landing() {
               <CardContent className="space-y-5 p-7">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">Needs your review</p>
-                  <Badge variant="secondary" className="rounded-full text-primary">From Ravi · caregiver</Badge>
+                  <Badge variant="secondary" className="rounded-full text-primary">From a caregiver</Badge>
                 </div>
-                <p className="font-serif text-2xl leading-snug">Margaret&apos;s reading glasses are now kept on the bedside table.</p>
+                <p className="font-serif text-2xl leading-snug">Your mom&apos;s reading glasses are now kept on the bedside table.</p>
                 <p className="rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
                   Would replace: <span className="line-through">Reading glasses are usually on the kitchen windowsill</span>
                 </p>
@@ -228,8 +228,8 @@ export default function Landing() {
                 </div>
                 <Separator />
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Guidance · Husband</p>
-                  <p className="text-sm">&ldquo;Answer gently with the facts, then offer the Lisbon photo album.&rdquo;</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Guidance · Difficult news</p>
+                  <p className="text-sm">&ldquo;Answer factually and gently from her memories. Keep it short, then offer to call a family member, or talk about how she is feeling.&rdquo;</p>
                 </div>
               </CardContent>
             </Card>

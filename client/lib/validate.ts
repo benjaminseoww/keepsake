@@ -54,7 +54,7 @@ function todayLine(now: Date) {
 
 export function buildPrompt(text: string, now: Date) {
   const { local, offset } = todayLine(now);
-  return `You prepare notes for a memory assistant used by a woman with early dementia (Margaret). Family and caregivers write the notes.
+  return `You prepare notes for a memory assistant used by a person with early dementia. Family and caregivers write the notes.
 
 Now: ${local}, time zone ${TZ} (UTC offset ${offset}).
 

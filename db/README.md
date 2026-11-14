@@ -13,7 +13,7 @@ To update an existing cluster without dropping data, run the scripts in `db/migr
 
 Memory fields: `scope` is private, family or caregiver. `status` is unverified, verified, superseded or retracted.
 
-Topic guidance (husband question) is hardcoded in the agent prompt for the MVP. See `NEXT_STEPS.md`.
+Topic guidance lives in the `topic_guidance` collection and is loaded in `/api/talk/session` for the signed-in person. Family edit it on the dashboard; the agent uses the new text on the next session.
 
 Role read rules: person reads private, family and caregiver. Family reads family and caregiver. Caregiver reads caregiver only.
 

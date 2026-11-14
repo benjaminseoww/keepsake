@@ -14,7 +14,7 @@ Files: client/lib/recall.ts, client/app/api/talk/recall/route.ts, client/app/api
 2. turns collection {schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], answer}. Index {person_id:1, at:-1}. recall writes it and returns turn_id with the memories.
 3. POST /api/turns/:id/answer: the client posts the agent's spoken answer (from the ElevenLabs transcript event in voice.tsx).
 4. GET /api/turns and /api/turns/:id plus the trace screen: question, answer, each memory with who added it, when, status, scores.
-5. Prompt: today's date; answer only from recall; empty means "I'm not sure, let's ask your family"; "you mentioned" for unverified; no medical advice; topic guidance inline (A11). Remove the topic_guidance read.
+5. Prompt: today's date; answer only from recall; empty means "I'm not sure, let's ask your family"; "you mentioned" for unverified; no medical advice. Topic guidance is loaded from `topic_guidance` in `/api/talk/session` and passed as `{{topic_guidance}}`.
 Interface to the ElevenLabs teammate: recall tool request {query}, response {turn_id, memories[{text, status}]}; answer callback above.
 
 ## Track B: write path + review (demo steps 3-4)

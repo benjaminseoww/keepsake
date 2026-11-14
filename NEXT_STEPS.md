@@ -2,20 +2,13 @@
 
 MVP first. These after.
 
-## Topic guidance (hardcoded now)
+## Topic guidance
 
-Now: rule live in agent prompt. One rule. Husband.
+Family write rules on the dashboard. They live in the `topic_guidance` collection (one doc per person + topic, unique index `{ person_id: 1, topic: 1 }`). Fields: `person_id`, `topic`, `guidance`, `related_memory_ids`, `set_by`, `updated_at`.
 
-```
-If Margaret talks about her husband George as if he is alive: do not correct her or say he died.
-Acknowledge the feeling, then offer the Lisbon photo album or ask about their trip.
-```
+`/api/talk/session` loads that person's rows and passes them to the voice agent as the `{{topic_guidance}}` dynamic variable (one `- topic: guidance` line per row, or `None.`). Dashboard edits apply on the next session.
 
-Later: `topic_guidance` collection. Family write rule. Agent read rule.
-- one doc per person + topic, unique index `{ person_id: 1, topic: 1 }`
-- fields: `person_id`, `topic`, `guidance`, `related_memory_ids`, `set_by`, `updated_at`
-- small, read with person. Embed in `households` doc as `topics` array (Mongo say: read together, store together). Few topics per person, bounded array. Embed good.
-- family view: edit box. Anna change rule, agent change answer.
+Later: embed the topics array in the `households` doc (Mongo: read together, store together). Few topics per person, bounded array.
 
 ## Leakage test (second household)
 
