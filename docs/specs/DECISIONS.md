@@ -81,3 +81,7 @@ Maintained by Mica (tech lead review). Newest entries at the bottom of each sect
 - A12: Any family member (role family, including the admin) can verify, deny, confirm a supersede and correct. Caregivers cannot verify; their writes stay unverified until a family member reviews them. Supersedes R18 and the "admin-only confirm" parts of R14/A3/A6.
 - A13: The admin's only extra power is managing household members (POST /users etc. in backend/, already requireFamilyAdmin).
 - A6 restated under A12: when a family member writes or corrects a fact that supersedes another, show "Are you sure? This will supersede <old>"; on yes it is approved immediately.
+
+## Daniel's answers (relayed by keepsake, Nov 14 12:35 ET)
+- A14: Classification is binary: a new memory supersedes a candidate or it doesn't. related/unrelated are dropped. classify() returns {proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}]}. Amends D1. proposed_supersedes = top-ranked candidate with supersedes true, else null.
+- Spec commits go on branch docs/memory-spec (reported by keepsake as pushed at 9640875; Daniel opens the PR).

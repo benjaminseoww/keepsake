@@ -14,12 +14,12 @@ Roles come from `households.members` on every request. The JWT is trusted for us
 | View the trace | no | own scopes | yes | yes |
 | Manage household members | no | no | no | **yes** |
 
-- The system classifies a new memory against existing ones as supersedes, related or unrelated. People only confirm or deny (D1, D2).
+- The system decides, for each existing candidate memory, whether the new memory supersedes it (yes or no; A14). People only confirm or deny (D1, D2).
 - Readable scopes: person reads private, family and caregiver; family reads family and caregiver; caregiver reads caregiver.
 
 ## Memory document
 main's schema plus `review`:
-`{schema_version:1, person_id, text, scope, status, source:{role,user_id}, supersedes, flagged, embedding[1024], created_at, review?:{state: pending|approved|denied, proposed_supersedes, candidates[{memory_id, label, rerank_score}], decided_by, decided_at}}`
+`{schema_version:1, person_id, text, scope, status, source:{role,user_id}, supersedes, flagged, embedding[1024], created_at, review?:{state: pending|approved|denied, proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}], decided_by, decided_at}}`
 - status: unverified | verified | superseded | retracted. Recall reads verified and unverified.
 - No `kind` field. No `expires_at`. Time-bound facts keep their dates in the text ("Anna is visiting Nov 12-16"). Optional `event_start`/`event_end` are allowed, but recall never filters on them.
 - Embeddings: voyage-3.5, 1024 dims, cosine; input_type `document` on write and `query` on recall.
@@ -37,7 +37,7 @@ main's schema plus `review`:
 - `GET /api/turns` (newest first) and `GET /api/turns/:id`. The trace screen shows the question, the answer, and for each memory who added it, when, its status and its scores.
 
 ## Write and review (demo steps 3-4)
-classify(text, person_id): embed as a document, then `$vectorSearch` candidates across all scopes for this person, then rerank-2.5, then label each one supersedes, related or unrelated. Return `{proposed_supersedes, candidates}`. It sits behind one function so the method can change (Q1 research pending; start with a rerank cutoff).
+classify(text, person_id): embed as a document, then `$vectorSearch` candidates across all scopes for this person, then rerank-2.5, then decide for each candidate whether the new memory supersedes it (true/false). Return `{proposed_supersedes, candidates:[{memory_id, supersedes, rerank_score}]}`. proposed_supersedes is the top-ranked candidate with supersedes true, or null. It sits behind one function so the method can change (Q1 research pending; start with a rerank cutoff).
 
 - **Caregiver adds:** the memory is saved unverified with review pending, proposed_supersedes and candidates set, and flagged true. The caregiver's response lists only candidates in the caregiver's readable scopes.
 - **Margaret adds (remember):** saved with scope family, unverified, review pending. Its proposed_supersedes is always null (R4). Private wishes stay private and verified, as main already does.
@@ -57,4 +57,4 @@ classify(text, person_id): embed as a document, then `$vectorSearch` candidates 
 Only the family admin adds or removes members (backend `POST /users`, requireFamilyAdmin). That is the admin's only extra power.
 
 ## Out of scope (NEXT_STEPS)
-Leakage test, `kind` field, live push notifications (change streams), an LLM classifier if Q1 lands on rerank-only, time-series turns.
+Leakage test, `kind` field, live push notifications (change streams), an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.

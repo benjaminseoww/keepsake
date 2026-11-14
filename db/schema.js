@@ -32,28 +32,28 @@ db.createCollection("memories", {
       },
       supersedes: { bsonType: ["objectId", "null"] },
       flagged:    { bsonType: "bool" },
-      expires_at: { bsonType: ["date", "null"] },
+      expires_at: { bsonType: ["date", "null"] },  // legacy, no longer written (no expiry)
       embedding:  { bsonType: "array" },      // voyage-3.5, 1024 dims
       key:        { bsonType: "string" },   // stable seed key, used by tests
       review: {
-        // Present on anything that needs an admin decision.
+        // Present on anything that needs a family decision.
         bsonType: "object",
         required: ["state"],
         properties: {
           state: { enum: ["pending", "approved", "denied"] },
-          // The memory this one would replace. Set by the system, not the admin.
+          // The memory this one would replace. Set by the system, not by a person.
           proposed_supersedes: { bsonType: ["objectId", "null"] },
-          // What the system found and how it classified each candidate.
+          // What the system found, and whether the new memory supersedes each candidate.
           candidates: {
             bsonType: "array",
             maxItems: 10,
             items: {
               bsonType: "object",
-              required: ["memory_id", "label"],
+              required: ["memory_id", "supersedes"],
               properties: {
                 memory_id:    { bsonType: "objectId" },
-                label:        { enum: ["supersedes", "related", "unrelated"] },
-                rerank_score: { bsonType: ["double", "int"] }
+                supersedes:   { bsonType: "bool" },
+                rerank_score: { bsonType: ["double", "int", "null"] }
               }
             }
           },
@@ -67,10 +67,9 @@ db.createCollection("memories", {
   validationAction: "error"
 });
 
-// TTL: deletes a memory once expires_at passes. Docs with null expires_at are ignored.
-db.memories.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
+// No TTL index: memories don't expire. Time-bound facts carry their date in the text.
 db.memories.createIndex({ person_id: 1, status: 1, flagged: 1 });
-// Admin review queue: pending items for a household, newest first.
+// Family review queue: pending items for a household, newest first.
 db.memories.createIndex({ person_id: 1, "review.state": 1, created_at: -1 });
 
 // people: auth only. Roles live in households.members, so the two can't disagree.

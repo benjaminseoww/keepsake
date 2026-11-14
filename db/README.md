@@ -22,7 +22,7 @@ Voyage usage: `voyage-3.5` with `input_type="document"` for stored memories and 
 ## Memory states
 
 - `verified`: trusted, used as fact.
-- `unverified` + `review.state: pending`: waiting for the admin. `review.proposed_supersedes` is the memory it would replace (set by the system). `review.candidates` lists what the system found and how it labelled each one (`supersedes`, `related`, `unrelated`).
+- `unverified` + `review.state: pending`: waiting for a family member. `review.proposed_supersedes` is the memory it would replace (set by the system). `review.candidates` lists what the system found and whether the new memory supersedes each one (`supersedes: true/false`).
 - `unverified` from the person: flagged, never proposes an override.
 - `superseded`: replaced by a newer verified memory that points back to it with `supersedes`.
 - `retracted`: admin denied it. Kept for audit, never retrieved.

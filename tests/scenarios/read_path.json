@@ -117,18 +117,13 @@
       ]
     },
     {
-      "id": "R13_expired_hidden",
+      "id": "R13_dated_event_found",
       "as": "margaret",
-      "query": "Is Joan coming by?",
-      "setup": [
-        {
-          "action": "expire",
-          "key": "joan_books"
-        }
-      ],
-      "must_exclude": [
+      "query": "Is Joan coming by today?",
+      "must_include": [
         "joan_books"
-      ]
+      ],
+      "note": "No expiry (A10). Time-bound facts carry their date in the text; the prompt gets today's date."
     },
     {
       "id": "R14_old_superseded_hidden",

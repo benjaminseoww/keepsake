@@ -4,7 +4,7 @@ All code in client/ (A9). Each track owns its files; the shared contract below c
 
 ## Shared contract (agree first, ~10 min)
 - `client/lib/memories.ts` keeps: SCOPES, visibleTo, SCHEMA_VERSION, actor, audit, embed. Add `canVerify(session)` (role family, includes the admin) and `isAdmin(session)` (`admin: true` in households.members).
-- Memory doc: main's schema + review {state, proposed_supersedes, candidates[{memory_id, label, rerank_score}], decided_by, decided_at}. No kind, no expires_at (A10).
+- Memory doc: main's schema + review {state, proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}], decided_by, decided_at}. No kind, no expires_at (A10).
 - `client/lib/voyage.ts`: `embed(texts, input_type)` and `rerank(query, docs, top_k)` (rerank-2.5). Track A writes it first; B imports it.
 - Status values: unverified | verified | superseded | retracted. Recall reads verified + unverified.
 
@@ -19,7 +19,7 @@ Interface to the ElevenLabs teammate: recall tool request {query}, response {tur
 
 ## Track B: write path + review (demo steps 3-4)
 Files: client/lib/classify.ts, client/app/dashboard/actions.ts, the dashboard review UI, client/app/api/talk/remember/route.ts.
-1. classify(newText, person_id, writerSession): embed as document, $vectorSearch candidates (all scopes, for the admin view), rerank-2.5, label supersedes/related/unrelated (method per the A1 research; start with a rerank cutoff placeholder behind this one function), return {proposed_supersedes, candidates}.
+1. classify(newText, person_id, writerSession): embed as document, $vectorSearch candidates (all scopes, for the admin view), rerank-2.5, decide supersedes true/false per candidate (A14; method per the A1 research; start with a rerank cutoff placeholder behind this one function), return {proposed_supersedes, candidates[{memory_id, supersedes, rerank_score}]}.
 2. addMemory by a caregiver, and remember (Margaret): run classify, save unverified + review pending. The writer's response shows only candidates in their readable scopes (A3).
 3. Family write that supersedes (family can verify, so they confirm their own): return needs_confirmation {old memory text, author, date}; on confirm=true approve immediately (A6).
 4. Review queue: pending reviews with the old memory looked up (text, author, date) -> "This will supersede <old>". Confirm/deny by any family member (canVerify; caregivers get 403), in one transaction (withTransaction). Confirm: new verified, old superseded, audit approve. Deny: new retracted, audit deny.

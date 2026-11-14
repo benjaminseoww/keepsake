@@ -1,5 +1,5 @@
 {
-  "_comment": "Admin review: the system has proposed an override. Admin only confirms or denies permission. Checks the state of both memories afterwards and that the queue shows the old memory.",
+  "_comment": "Family review: the system has proposed an override. Any family member confirms or denies permission; caregivers can't. Checks the state of both memories afterwards and that the queue shows the old memory.",
   "cases": [
     {
       "id": "A01_confirm_override",
@@ -12,7 +12,7 @@
         "old_text": "Physio visit is every Tuesday at 2pm",
         "message_contains": "will supersede"
       },
-      "admin": {
+      "reviewer": {
         "as": "anna",
         "decision": "confirm"
       },
@@ -30,7 +30,7 @@
         "text": "The spare key is now kept in the mailbox",
         "supersedes": "spare_key"
       },
-      "admin": {
+      "reviewer": {
         "as": "anna",
         "decision": "deny"
       },
@@ -40,13 +40,13 @@
       }
     },
     {
-      "id": "A03_non_admin_cannot_confirm",
+      "id": "A03_caregiver_cannot_confirm",
       "proposal": {
         "by": "ravi",
         "text": "Margaret takes her tea with honey now instead of sugar-free",
         "supersedes": "tea"
       },
-      "admin": {
+      "reviewer": {
         "as": "ravi",
         "decision": "confirm"
       },
@@ -62,18 +62,18 @@
         "text": "Margaret's favourite biscuits are ginger snaps",
         "supersedes": null
       },
-      "admin": {
+      "reviewer": {
         "as": "anna",
         "decision": "confirm"
       },
       "expect": {
         "new_status": "verified"
       },
-      "note": "No conflict found: admin just verifies the new memory."
+      "note": "No conflict found: a family member just verifies the new memory."
     },
     {
       "id": "A05_seeded_queue",
-      "admin": {
+      "reviewer": {
         "as": "anna"
       },
       "expect": {
@@ -99,7 +99,7 @@
     {
       "id": "A06_approve_seeded_override",
       "existing": "glasses_bedside_pending",
-      "admin": {
+      "reviewer": {
         "as": "anna",
         "decision": "confirm"
       },
@@ -113,7 +113,7 @@
     {
       "id": "A07_person_statement_no_override",
       "existing": "maple_unverified",
-      "admin": {
+      "reviewer": {
         "as": "anna",
         "decision": "deny"
       },
@@ -121,7 +121,24 @@
         "new_status": "retracted",
         "old_status": "verified"
       },
-      "note": "maple_unverified lists address as related only. Denying it leaves the address untouched."
+      "note": "maple_unverified lists address as a candidate with supersedes false. Denying it leaves the address untouched."
+    },
+    {
+      "id": "A08_family_non_admin_can_confirm",
+      "proposal": {
+        "by": "ravi",
+        "text": "Ravi now also comes on Saturday mornings",
+        "supersedes": null
+      },
+      "reviewer": {
+        "as": "david",
+        "decision": "confirm"
+      },
+      "expect": {
+        "new_status": "verified",
+        "audit_action": "verify"
+      },
+      "note": "David is family but not the admin. Any family member can verify (A12)."
     }
   ]
 }

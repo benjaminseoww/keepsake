@@ -6,10 +6,10 @@ All people and data are invented.
 
 Memory states in this seed:
   verified                  trusted, used as fact
-  unverified + pending      waiting for admin; may propose an override (review.proposed_supersedes)
+  unverified + pending      waiting for a family member; may propose an override (review.proposed_supersedes)
   unverified (from person)  something Margaret said; flagged, never proposes an override
   superseded                replaced by a newer verified memory (history for the trace screen)
-  retracted                 admin denied it; kept for audit, never retrieved
+  retracted                 a family member denied it; kept for audit, never retrieved
 """
 import os
 from datetime import datetime, timedelta, timezone
@@ -28,7 +28,7 @@ vo = voyageai.Client()  # reads VOYAGE_API_KEY
 
 now = datetime.now(timezone.utc)
 ago = lambda **kw: now - timedelta(**kw)
-local_tonight = datetime.now().astimezone().replace(hour=21, minute=0, second=0, microsecond=0)
+day = lambda d: d.astimezone().strftime("%A %b %-d")  # e.g. "Saturday Nov 14", local zone
 
 anna = {"role": "family", "user_id": "anna"}
 ravi = {"role": "caregiver", "user_id": "ravi"}
@@ -43,6 +43,7 @@ db.households.insert_one({
     "members": [
         {"user_id": "margaret", "name": "Margaret", "role": "person"},
         {"user_id": "anna", "name": "Anna", "role": "family", "relation": "daughter", "admin": True},
+        {"user_id": "david", "name": "David", "role": "family", "relation": "son", "admin": False},
         {"user_id": "ravi", "name": "Ravi", "role": "caregiver", "shift": "weekday mornings"},
     ],
 })
@@ -63,13 +64,10 @@ memories = [
     {"key": "garbage_day", "text": "Garbage and recycling go out Wednesday night", "scope": "caregiver", "status": V, "source": anna},
     {"key": "ravi_holidays", "text": "Ravi does not come on statutory holidays", "scope": "caregiver", "status": V, "source": anna},
 
-    # ---------- verified: events (expire) ----------
-    {"key": "anna_dinner", "text": "Anna is bringing dinner today at 6pm", "scope": "family", "status": V, "source": anna,
-     "expires_at": local_tonight},
-    {"key": "joan_books", "text": "Neighbour Joan is dropping off library books this morning", "scope": "caregiver", "status": V, "source": anna,
-     "expires_at": now + timedelta(minutes=5), "note": "Expires during the demo."},
-    {"key": "leo_birthday", "text": "Grandson Leo's birthday party is next Saturday", "scope": "family", "status": V, "source": anna,
-     "expires_at": now + timedelta(days=8)},
+    # ---------- verified: events (no expiry; the date is in the text) ----------
+    {"key": "anna_dinner", "text": f"Anna is bringing dinner on {day(now)} at 6pm", "scope": "family", "status": V, "source": anna},
+    {"key": "joan_books", "text": f"Neighbour Joan is dropping off library books on the morning of {day(now)}", "scope": "caregiver", "status": V, "source": anna},
+    {"key": "leo_birthday", "text": f"Grandson Leo's birthday party is on {day(now + timedelta(days=7))}", "scope": "family", "status": V, "source": anna},
 
     # ---------- verified: facts ----------
     {"key": "husband", "text": "Margaret's husband George passed away in 2022", "scope": "family", "status": V, "source": anna},
@@ -90,30 +88,30 @@ memories = [
     # ---------- unverified, pending, PROPOSES an override (caregiver) ----------
     {"key": "glasses_bedside_pending", "text": "Margaret's reading glasses are now kept on the bedside table", "scope": "caregiver", "status": U, "source": ravi,
      "flagged": True, "_proposes": "glasses",
-     "_candidates": [("glasses", "supersedes"), ("phone_charger", "unrelated")], "created_at": ago(hours=20)},
+     "_candidates": [("glasses", True), ("phone_charger", False)], "created_at": ago(hours=20)},
     {"key": "radio_classical_pending", "text": "Margaret switched to classical music on the radio in the afternoons", "scope": "caregiver", "status": U, "source": ravi,
      "flagged": True, "_proposes": "radio",
-     "_candidates": [("radio", "supersedes"), ("lisbon_album", "unrelated")], "created_at": ago(hours=6)},
+     "_candidates": [("radio", True), ("lisbon_album", False)], "created_at": ago(hours=6)},
 
     # ---------- unverified, pending, does NOT propose an override (caregiver) ----------
     {"key": "ravi_newspaper_pending", "text": "Ravi brings the newspaper with him on Monday visits", "scope": "caregiver", "status": U, "source": ravi,
      "flagged": True, "_proposes": None,
-     "_candidates": [("ravi_weekdays", "related")], "created_at": ago(hours=30),
-     "note": "Related to the visit routine but adds to it."},
+     "_candidates": [("ravi_weekdays", False)], "created_at": ago(hours=30),
+     "note": "Adds to the visit routine; does not supersede it."},
     {"key": "cardigan_pending", "text": "Margaret's favourite cardigan is the green one in the hall closet", "scope": "caregiver", "status": U, "source": ravi,
      "flagged": True, "_proposes": None, "_candidates": [], "created_at": ago(hours=3),
-     "note": "Nothing related found."},
+     "note": "No candidate found."},
     {"key": "garbage_neighbour_pending", "text": "Joan's son takes the garbage bins to the curb for Margaret", "scope": "caregiver", "status": U, "source": ravi,
      "flagged": True, "_proposes": None,
-     "_candidates": [("garbage_day", "related")], "created_at": ago(hours=2),
+     "_candidates": [("garbage_day", False)], "created_at": ago(hours=2),
      "note": "Same topic, different detail: who, not when."},
 
     # ---------- unverified, from Margaret (never proposes an override) ----------
     {"key": "ruth_unverified", "text": "Margaret said her sister Ruth visited yesterday", "scope": "family", "status": U, "source": marg,
-     "flagged": True, "_proposes": None, "_candidates": [], "expires_at": now + timedelta(days=3), "created_at": ago(hours=18)},
+     "flagged": True, "_proposes": None, "_candidates": [], "created_at": ago(hours=18)},
     {"key": "maple_unverified", "text": "Margaret said she lives on Maple Avenue", "scope": "family", "status": U, "source": marg,
      "flagged": True, "_proposes": None,
-     "_candidates": [("address", "related")], "created_at": ago(hours=26),
+     "_candidates": [("address", False)], "created_at": ago(hours=26),
      "note": "Contradicts a verified fact, but a person's statement never overrides family-verified memory."},
 
     # ---------- history: approved override (old one superseded) ----------
@@ -122,7 +120,7 @@ memories = [
 
     # ---------- history: denied proposal ----------
     {"key": "key_doormat_denied", "text": "The spare key is under the front doormat", "scope": "caregiver", "status": "retracted", "source": ravi,
-     "_proposes": "spare_key", "_candidates": [("spare_key", "supersedes")], "_decision": ("denied", "anna", ago(days=5)),
+     "_proposes": "spare_key", "_candidates": [("spare_key", True)], "_decision": ("denied", "anna", ago(days=5)),
      "created_at": ago(days=6)},
 ]
 
@@ -133,7 +131,7 @@ vectors = vo.embed([m["text"] for m in memories], model=EMBED_MODEL, input_type=
 PRIVATE = {"_supersedes", "_proposes", "_candidates", "_decision"}
 docs = []
 for m, v in zip(memories, vectors):
-    d = {"schema_version": SCHEMA_VERSION, "person_id": "margaret", "supersedes": None, "flagged": False, "expires_at": None, "created_at": now}
+    d = {"schema_version": SCHEMA_VERSION, "person_id": "margaret", "supersedes": None, "flagged": False, "created_at": now}
     d.update({k: val for k, val in m.items() if k not in PRIVATE})
     d["embedding"] = v
     docs.append(d)
@@ -148,17 +146,17 @@ for m in memories:
         db.memories.update_one({"_id": _id}, {"$set": {
             "supersedes": ids[m["_supersedes"]],
             "review": {"state": "approved", "proposed_supersedes": ids[m["_supersedes"]],
-                       "candidates": [{"memory_id": ids[m["_supersedes"]], "label": "supersedes"}],
+                       "candidates": [{"memory_id": ids[m["_supersedes"]], "supersedes": True}],
                        "decided_by": "anna", "decided_at": ago(days=20)},
         }})
-        db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "correct", "actor": anna,
+        db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "approve", "actor": anna,
                                  "old_id": ids[m["_supersedes"]], "new_id": _id, "at": ago(days=20)})
     if "_proposes" in m:
         state, by, at = m.get("_decision", ("pending", None, None))
         db.memories.update_one({"_id": _id}, {"$set": {"review": {
             "state": state,
             "proposed_supersedes": ids[m["_proposes"]] if m["_proposes"] else None,
-            "candidates": [{"memory_id": ids[k], "label": lbl} for k, lbl in m.get("_candidates", [])],
+            "candidates": [{"memory_id": ids[k], "supersedes": flag} for k, flag in m.get("_candidates", [])],
             "decided_by": by, "decided_at": at,
         }}})
         if state == "denied":

@@ -1,11 +1,11 @@
 {
-  "_comment": "Write path: someone adds a memory. The SYSTEM finds related memories (voyage-3.5 -> $vectorSearch over the household's verified memories, all scopes -> rerank-2.5) and classifies each candidate as supersedes | related | unrelated. Only 'supersedes' creates a pending override. The admin does not classify; they only grant or refuse permission to override. expect.supersedes: keys the system must propose to replace (empty list = no override proposed). expect.not_supersedes: keys that may show up as related but must NOT be proposed.",
+  "_comment": "Write path: someone adds a memory. The SYSTEM finds candidate memories (voyage-3.5 -> $vectorSearch over the household's verified memories, all scopes -> rerank-2.5) and decides supersedes true/false per candidate. A supersede creates a pending override. Family members do not classify; they confirm or deny. expect.supersedes: keys the system must propose to replace (empty list = no override proposed). expect.not_supersedes: keys that may show up as candidates but must NOT be proposed.",
   "cases": [
     { "id": "W01_schedule_change", "as": "ravi",
       "text": "Physio is every second Tuesday now, not every week",
       "expect": { "supersedes": ["physio_weekly"] } },
 
-    { "id": "W02_related_not_replacing", "as": "ravi",
+    { "id": "W02_not_superseding", "as": "ravi",
       "text": "The physio therapist's name is Priya",
       "expect": { "supersedes": [], "not_supersedes": ["physio_weekly"] } },
 
@@ -27,7 +27,7 @@
       "text": "The spare key is now kept in the mailbox",
       "expect": { "supersedes": ["spare_key"] } },
 
-    { "id": "W07_new_unrelated", "as": "ravi",
+    { "id": "W07_no_candidates", "as": "ravi",
       "text": "Margaret's favourite biscuits are ginger snaps",
       "expect": { "supersedes": [] } },
 
@@ -48,6 +48,6 @@
     { "id": "W11_caregiver_cannot_target_hidden", "as": "ravi",
       "text": "Margaret is moving to assisted living next month",
       "expect": { "supersedes": [], "candidates_visible_to_writer": { "exclude": ["assisted_living"] } },
-      "note": "The writer's own response must not reveal family-only memories, even as conflict candidates. The admin sees the full picture during review." }
+      "note": "The writer's own response must not reveal family-only memories, even as conflict candidates. Family members see the full picture during review." }
   ]
 }
