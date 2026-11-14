@@ -25,12 +25,13 @@ Expiry is not built. Time-bound facts keep dates in the text and on optional `ev
 
 ## Use of MongoDB Products
 
-- **MongoDB Atlas** is the store. Collections: `memories`, `people` (login only), `households` (roles and membership), `audit_log`, and `turns` (one doc per recall, read by `/trace`). Schema validation (`$jsonSchema`) is on those collections (`db/schema.js` and migrations).
-- **Atlas Vector Search.** Writes and reads run `$vectorSearch` on the `memory_vec` index (`memories.embedding`, 1024 dims, cosine). The index has filter fields `person_id`, `status` and `scope`. Every search pre-filters to that person, `status: verified`, and the scopes the caller's role may see, so one household's memory does not leak into another.
-- **Voyage AI** (MongoDB's embedding and rerank models). The app calls `voyage-3.5` to embed notes (`input_type: document`) and questions (`input_type: query`), stores the vectors on the memory docs, and calls `rerank-2.5` after the vector search.
-- **BSON Date.** When a note names a day or time, validate writes `event_start` and optional `event_end` as BSON Date (`db/schema.js`). Those dates feed the time-stripped supersede check and the caregiver briefing. There is no TTL index and no `expires_at` write path (dropped in migration `004`).
-- **Transactions and indexes.** Confirm, deny and correct use `session.withTransaction` so the new memory, the old status and the audit row change together. Regular indexes cover review queues, unique `people` emails and `user_id`s, unique `households.person_id` and `members.user_id`, `audit_log` by memory, and `turns` by `{person_id, at}`.
-- We do not use change streams or Atlas Search / `$rankFusion` in this build.
+- **MongoDB Atlas.** Stores all of Keepsake's state: memories, people, households (roles and membership), audit_log and turns (one doc per recall). Schema validation keeps writes clean, and confirm, deny and correct run in transactions so a memory, the one it replaces and the audit row change together.
+- **Atlas Vector Search.** Every write and every read runs `$vectorSearch` on the `memory_vec` index (1024 dims, cosine). Each search is pre-filtered by person, by `status: verified` and by the scopes the caller's role may see, so one household's memory never leaks into another's and unverified notes never reach the agent.
+- **Voyage AI (by MongoDB).** `voyage-3.5` embeds notes and questions. `rerank-2.5` reranks the vector search results. On writes, the reranked matches drive the supersede check: a new note that replaces or contradicts a verified memory is flagged for family to confirm.
+
+## Use of ElevenLabs
+
+- **ElevenLabs Conversational AI.** Margaret talks to Keepsake by voice. The ElevenLabs agent calls `POST /api/recall` as a tool and answers only from her verified memories, so a family correction changes what she hears next.
 
 ## Architecture
 
