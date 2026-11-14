@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { ObjectId, type ClientSession, type Document } from "mongodb";
 import type { Session } from "./auth";
 import { getClient, getDb } from "./db";
@@ -42,11 +43,12 @@ export type WriteResult = NeedsConfirmation | SavedWrite;
 // Multi-fact notes (A17): one result per fact. saved is false when any fact needs confirmation.
 export type NotSaved = { saved: false; needs_confirmation: false };
 export type BatchFactResult = { text: string; event_start: string | null; event_end: string | null; result: SavedWrite | NeedsConfirmation | NotSaved };
-export type BatchResult = { batch: true; saved: boolean; facts: BatchFactResult[] };
+// facts_token is set when saved is false. The confirm resend must send it back with the same facts.
+export type BatchResult = { batch: true; saved: boolean; facts: BatchFactResult[]; facts_token?: string };
 
 // A confirm resend of a multi-fact note sends the split facts back, each with its own confirm_supersedes.
 export type FactInput = { text: string; event_start?: string | null; event_end?: string | null; confirm_supersedes?: string };
-export type MemoryInput = { text?: string; scope?: string; confirm?: boolean; confirm_supersedes?: string; facts?: FactInput[] };
+export type MemoryInput = { text?: string; scope?: string; confirm?: boolean; confirm_supersedes?: string; facts?: FactInput[]; facts_token?: string };
 
 const memories = async () => (await getDb()).collection("memories");
 const iso = (d?: Date | null) => (d ? d.toISOString() : null);
@@ -65,11 +67,33 @@ function requireRole(s: Session, roles: Role[], message: string) {
   if (!roles.includes(s.role)) throw new WriteError("forbidden", message);
 }
 
-// Validation layer (A17): empty/length checks, then Gemini splits facts and rewrites relative dates.
-// A resend that carries facts[] is not re-split.
+// Signs the split facts (text and dates) we returned in a saved:false batch, for this writer and person.
+// A resend's facts must carry this token, so they are exactly what validate produced: the client
+// can't skip Gemini or change event_start/event_end. HMAC-SHA256 with AUTH_SECRET.
+function factsToken(s: Session, facts: Fact[]): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error("AUTH_SECRET is not set");
+  const body = JSON.stringify([s.user_id, s.person_id, facts.map((f) => [f.text, iso(f.event_start), iso(f.event_end)])]);
+  return createHmac("sha256", secret).update(body).digest("base64url");
+}
+function tokenMatches(s: Session, facts: Fact[], token: unknown): boolean {
+  if (typeof token !== "string") return false;
+  const want = Buffer.from(factsToken(s, facts));
+  const got = Buffer.from(token);
+  return want.length === got.length && timingSafeEqual(want, got);
+}
+
+// Validation layer (A17): every add runs validate (empty/length checks, then Gemini splits facts and
+// rewrites relative dates). The one exception is the confirm resend of a multi-fact note: it sends
+// back facts[] with the facts_token from our saved:false batch, and those facts are not re-split.
 async function factsOf(s: Session, input: MemoryInput): Promise<Fact[]> {
   try {
-    if (input.facts) return revalidateFacts(input.facts);
+    if (input.facts !== undefined) {
+      if (input.confirm !== true || input.text) throw new WriteError("bad_request", "facts is only accepted on a confirm resend (confirm: true, no text)");
+      const facts = revalidateFacts(input.facts);
+      if (!tokenMatches(s, facts, input.facts_token)) throw new WriteError("bad_request", "facts don't match the ones we returned; add the note again");
+      return facts;
+    }
     return (await validate(input.text, s)).facts;
   } catch (e) {
     if (e instanceof ValidationError) throw new WriteError(e.code, e.message);
@@ -190,6 +214,11 @@ export async function createMemory(s: Session, input: MemoryInput): Promise<Writ
   if (!readableScopes(s.role).includes(scope)) throw new WriteError("bad_request", "scope must be family or caregiver");
 
   const facts = await factsOf(s, input);
+  return addFacts(s, scope, facts, input);
+}
+
+// Plans and saves already-validated facts. Split out so the OldChanged retry doesn't validate again.
+async function addFacts(s: Session, scope: Scope, facts: Fact[], input: MemoryInput): Promise<WriteResult | BatchResult> {
   const single = facts.length === 1;
   const confirmIds = input.facts ? input.facts.map((f) => f.confirm_supersedes) : single ? [input.confirm_supersedes] : facts.map(() => undefined);
 
@@ -213,6 +242,7 @@ export async function createMemory(s: Session, input: MemoryInput): Promise<Writ
 
   const batchOf = (results: (SavedWrite | NeedsConfirmation | NotSaved)[], saved: boolean): BatchResult => ({
     batch: true, saved, facts: plans.map((p, i) => ({ text: p.fact.text, ...dates(p.fact), result: results[i] })),
+    ...(!saved && { facts_token: factsToken(s, facts) }),
   });
 
   if (asks.some(Boolean)) {
@@ -237,7 +267,7 @@ export async function createMemory(s: Session, input: MemoryInput): Promise<Writ
     if (!(e instanceof OldChanged)) throw e;
     // The old memory changed between classify and the save. Classify again: a new proposal is a fresh
     // 409 needs-confirmation (R21); with nothing left to supersede, it's a plain conflict.
-    const again = await createMemory(s, { ...input, confirm: false });
+    const again = await addFacts(s, scope, facts, { ...input, confirm: false });
     if ("needs_confirmation" in again && again.needs_confirmation) throw new ConfirmMismatch(again);
     if ("batch" in again && !again.saved) throw new ConfirmMismatch(again);
     throw new WriteError("conflict", "The old memory was already replaced. Please review and try again.");

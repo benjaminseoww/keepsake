@@ -6,6 +6,7 @@ import type { Fact } from "@/lib/validate";
 import { fakeDb } from "./fake-db";
 
 // DB, Voyage, Gemini (validate) and classify are mocked; the rules in lib/writes.ts run for real.
+process.env.AUTH_SECRET ??= "test-secret";
 let f: ReturnType<typeof fakeDb>;
 vi.mock("@/lib/db", () => ({ getDb: async () => f.db, getClient: async () => f.client }));
 
@@ -190,11 +191,68 @@ describe("createMemory: failures and batches", () => {
 
     const again = (await w.createMemory(anna, { confirm: true, facts: [
       { text: "Dinner moved to 7pm", confirm_supersedes: dinner.toString() }, { text: "Leo's birthday is Dec 3" },
-    ] })) as import("@/lib/writes").BatchResult;
+    ], facts_token: r.facts_token })) as import("@/lib/writes").BatchResult;
     expect(again.saved).toBe(true);
     expect(validateMock).toHaveBeenCalledTimes(1);
     expect(byId(dinner).status).toBe("superseded");
     expect(f.store.memories.length).toBe(5);
+  });
+
+  describe("A17 facts[] is only a signed confirm resend", () => {
+    const ask = async () => {
+      facts = [{ text: "Dinner moved to 7pm", event_start: new Date("2026-11-15T00:00:00Z") }, { text: "Leo's birthday is Dec 3" }];
+      classifyResult = (t) => (t.startsWith("Dinner") ? cls([hit(dinner, true)]) : cls([]));
+      const r = (await w.createMemory(anna, { text: "x" })) as import("@/lib/writes").BatchResult;
+      expect(r.facts_token).toEqual(expect.any(String));
+      validateMock.mockClear();
+      return r;
+    };
+    const resend = (r: import("@/lib/writes").BatchResult) => r.facts.map((x, i) => ({
+      text: x.text, event_start: x.event_start, event_end: x.event_end, ...(i === 0 && { confirm_supersedes: dinner.toString() }),
+    }));
+    const rejects = async (input: import("@/lib/writes").MemoryInput) => {
+      await expect(w.createMemory(anna, input)).rejects.toMatchObject({ code: "bad_request" });
+      expect(validateMock).not.toHaveBeenCalled();
+      expect(f.store.memories.length).toBe(3);
+    };
+
+    it("first submit with facts[] and no confirm is 400; nothing saved, Gemini not called", async () => {
+      validateMock.mockClear();
+      await rejects({ facts: [{ text: "Anna visits on Sat Nov 14", event_start: "2030-01-01T00:00:00Z" }] });
+    });
+    it("confirm: true with facts[] but no token is 400 (can't skip validate by setting confirm)", async () => {
+      validateMock.mockClear();
+      await rejects({ confirm: true, facts: [{ text: "Anna visits on Sat Nov 14" }] });
+    });
+    it("a changed event date is 400", async () => {
+      const r = await ask();
+      const fs = resend(r); fs[0].event_start = "2030-01-01T00:00:00.000Z";
+      await rejects({ confirm: true, facts: fs, facts_token: r.facts_token });
+    });
+    it("an invalid event date is 400", async () => {
+      const r = await ask();
+      const fs = resend(r); fs[0].event_start = "not a date";
+      await rejects({ confirm: true, facts: fs, facts_token: r.facts_token });
+    });
+    it("changed text, a dropped fact, or text sent with facts is 400", async () => {
+      const r = await ask();
+      const fs = resend(r);
+      await rejects({ confirm: true, facts: [{ ...fs[0], text: "Dinner cancelled" }, fs[1]], facts_token: r.facts_token });
+      await rejects({ confirm: true, facts: [fs[0]], facts_token: r.facts_token });
+      await rejects({ confirm: true, text: "x", facts: fs, facts_token: r.facts_token });
+    });
+    it("a tampered token is 400", async () => {
+      const r = await ask();
+      await rejects({ confirm: true, facts: resend(r), facts_token: r.facts_token?.replace(/^./, (c) => (c === "A" ? "B" : "A")) });
+    });
+    it("the unchanged resend saves with the dates validate returned", async () => {
+      const r = await ask();
+      const again = (await w.createMemory(anna, { confirm: true, facts: resend(r), facts_token: r.facts_token })) as import("@/lib/writes").BatchResult;
+      expect(again.saved).toBe(true);
+      expect(again.facts_token).toBeUndefined();
+      expect(again.facts[0].event_start).toBe("2026-11-15T00:00:00.000Z");
+      expect(validateMock).not.toHaveBeenCalled();
+    });
   });
 });
 

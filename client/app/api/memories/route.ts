@@ -13,8 +13,11 @@ export async function POST(req: Request) {
   const input = {
     text: b.text as string | undefined, scope: b.scope as string | undefined, confirm: flag(b.confirm),
     confirm_supersedes: b.confirm_supersedes as string | undefined,
-    // Confirm resend of a multi-fact note (A17): the split facts, each with its own confirm_supersedes.
-    facts: Array.isArray(b.facts) ? (b.facts as FactInput[]) : undefined,
+    // Confirm resend of a multi-fact note (A17): the split facts, each with its own confirm_supersedes,
+    // plus the facts_token we returned. Without confirm: true and a matching token it is a 400.
+    // Anything other than an array is rejected by createMemory, never ignored.
+    facts: b.facts === undefined ? undefined : (b.facts as FactInput[]),
+    facts_token: b.facts_token as string | undefined,
   };
   return route((s) => createMemory(s, input), savedStatus);
 }

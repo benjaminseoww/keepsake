@@ -50,6 +50,7 @@ function ConfirmBatch({ state, action, pending }: { state: Extract<FormState, { 
         })}
       </ul>
       <input type="hidden" name="facts" value={JSON.stringify(state.facts)} />
+      <input type="hidden" name="facts_token" value={state.facts_token} />
       <input type="hidden" name="confirm" value="true" />
       {state.scope && <input type="hidden" name="scope" value={state.scope} />}
       <Button size="sm" className="rounded-full" disabled={pending}>Yes, save all</Button>

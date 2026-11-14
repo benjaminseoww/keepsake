@@ -156,10 +156,18 @@ paths:
           classified on its own. If no fact needs confirmation, all are
           saved in one transaction (201, `saved: true`). If any fact
           needs confirmation, nothing is saved (200, `saved: false`) and
-          each fact carries its own result. The client resends `facts[]`
-          (the split facts, not the raw text) with `confirm: true` and a
-          `confirm_supersedes` on each fact it confirmed, so the second
-          call is not re-split. A one-fact note always uses the
+          each fact carries its own result, plus a `facts_token`. The
+          client resends `facts[]` (the split facts exactly as returned,
+          not the raw text) with `confirm: true`, the `facts_token`, and
+          a `confirm_supersedes` on each fact it confirmed, so the second
+          call is not re-split.
+        - **`facts[]` is only a confirm resend:** every other add runs
+          validate. `facts[]` without `confirm: true`, sent together with
+          `text`, or without a `facts_token` that matches the facts is
+          400 and nothing is saved. The token is an HMAC over the writer,
+          the person and each fact's text and dates, so a changed text,
+          a changed or invalid `event_start`/`event_end`, or an added or
+          dropped fact is rejected. A one-fact note always uses the
           single-fact shapes.
         - **Family, no supersede:** saved `verified` with audit `write`.
           Returns 201.
@@ -831,7 +839,7 @@ components:
     AddMemoryRequest:
       type: object
       additionalProperties: false
-      description: Send `text` on the first submit. On a confirm resend of a multi-fact note, send `facts` (the split facts from the BatchResult) instead.
+      description: Send `text` on the first submit. On a confirm resend of a multi-fact note, send `facts` (the split facts from the BatchResult, unchanged) and `facts_token` instead, with `confirm` true.
       anyOf:
         - required: [text]
         - required: [facts]
@@ -851,6 +859,9 @@ components:
             server does not re-split them.
           items:
             $ref: "#/components/schemas/FactInput"
+        facts_token:
+          type: string
+          description: The `facts_token` from the BatchResult. Required with `facts`.
         scope:
           $ref: "#/components/schemas/Scope"
           description: |
@@ -868,15 +879,23 @@ components:
             shown in the needs_confirmation response. The server saves
             only if classify still proposes this id and the memory is
             still verified.
-      if:
-        properties:
-          confirm:
-            const: true
-        required: [confirm, text]
-        not:
-          required: [facts]
-      then:
-        required: [confirm_supersedes]
+      allOf:
+        - if:
+            properties:
+              confirm:
+                const: true
+            required: [confirm, text]
+          then:
+            required: [confirm_supersedes]
+        - if:
+            required: [facts]
+          then:
+            required: [confirm, facts_token]
+            properties:
+              confirm:
+                const: true
+            not:
+              required: [text]
 
     FactInput:
       type: object
@@ -941,6 +960,9 @@ components:
         saved:
           type: boolean
           description: true when every fact was saved in one transaction; false when any fact needs confirmation and nothing was saved.
+        facts_token:
+          type: string
+          description: Present only when `saved` is false. Send it back unchanged with `facts` on the confirm resend.
         facts:
           type: array
           items:

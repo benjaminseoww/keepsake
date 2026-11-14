@@ -20,7 +20,7 @@ export type FormState =
   | { kind: "error"; message: string }
   | { kind: "confirm"; old: OldMemory; text: string; scope?: string }
   // A multi-fact note with at least one conflict (A17): resend the split facts, not the raw text.
-  | { kind: "confirm_batch"; facts: FactInput[]; conflicts: { text: string; old: OldMemory }[]; scope?: string };
+  | { kind: "confirm_batch"; facts: FactInput[]; facts_token: string; conflicts: { text: string; old: OldMemory }[]; scope?: string };
 
 function askBatch(b: BatchResult, scope?: string): FormState {
   const facts = b.facts.map((f) => ({
@@ -28,7 +28,7 @@ function askBatch(b: BatchResult, scope?: string): FormState {
     ...("old" in f.result && { confirm_supersedes: f.result.old.memory_id }),
   }));
   const conflicts = b.facts.flatMap((f) => ("old" in f.result ? [{ text: f.text, old: f.result.old }] : []));
-  return { kind: "confirm_batch", facts, conflicts, scope };
+  return { kind: "confirm_batch", facts, facts_token: b.facts_token ?? "", conflicts, scope };
 }
 
 async function run(write: () => Promise<WriteResult | BatchResult>, text: string, scope?: string): Promise<FormState> {
@@ -65,7 +65,9 @@ export async function addMemory(_prev: FormState, form: FormData): Promise<FormS
   if (rawFacts) {
     try { facts = JSON.parse(rawFacts); } catch { return { kind: "error", message: "Please add the note again." }; }
   }
-  return run(() => createMemory(s, { text, scope, facts, ...confirmFields(form) }), text, scope);
+  const facts_token = str(form, "facts_token") || undefined;
+  // A batch resend sends facts and no text.
+  return run(() => createMemory(s, { ...(facts ? { facts, facts_token } : { text }), scope, ...confirmFields(form) }), text, scope);
 }
 
 // POST /api/memories/:id/corrections, as a form.
