@@ -95,6 +95,33 @@ export function normalizeFacts(raw: { facts?: RawFact[] } | null | undefined): F
   return facts;
 }
 
+// Gemini sometimes gets the year wrong ("yesterday" came back as 2025-11-13 on 2026-11-14).
+// If the note has no explicit year and a date is more than ~6 months from today, move it (and its
+// end) by whole years to the year nearest today, keeping the Toronto wall-clock time.
+const HALF_YEAR_MS = 183 * 24 * 3600_000;
+const tzOffsetMs = (d: Date) => {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "longOffset" }).formatToParts(d)
+    .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const m = /GMT([+-])(\d{2}):?(\d{2})?/.exec(name);
+  return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0)) * 60_000 : 0;
+};
+function shiftYears(d: Date, years: number): Date {
+  const out = new Date(d);
+  out.setUTCFullYear(out.getUTCFullYear() + years);
+  return new Date(out.getTime() + tzOffsetMs(d) - tzOffsetMs(out));
+}
+export function fixYears(facts: Fact[], note: string, now: Date): Fact[] {
+  if (/\b(19|20)\d{2}\b/.test(note)) return facts; // the writer gave a year; trust it
+  return facts.map((f) => {
+    if (!f.event_start || Math.abs(f.event_start.getTime() - now.getTime()) <= HALF_YEAR_MS) return f;
+    const years = Math.round((now.getTime() - f.event_start.getTime()) / (365.25 * 24 * 3600_000));
+    const fixed: Fact = { ...f, event_start: shiftYears(f.event_start, years) };
+    if (f.event_end) fixed.event_end = shiftYears(f.event_end, years);
+    console.warn("validate: moved a date by", years, "year(s); the note gave no year");
+    return fixed;
+  });
+}
+
 // The input checks that need no model.
 export function checkText(text: unknown): string {
   if (typeof text !== "string" || !text.trim()) throw new ValidationError("bad_request", "text is required");
@@ -120,7 +147,7 @@ export async function validate(text: unknown, _session: Session | null, deps: Va
     console.error("validate: Gemini failed", kind, e instanceof GeminiError ? e.message.slice(0, 40) : "");
     throw new ValidationError("unavailable", "Could not check this note right now. Please try again.");
   }
-  const facts = normalizeFacts(raw);
+  const facts = fixYears(normalizeFacts(raw), t, now);
   if (!facts.length) throw new ValidationError("unavailable", "Could not read this note. Please rephrase and try again.");
   if (facts.length > MAX_FACTS) throw new ValidationError("bad_request", `Too many facts in one note (max ${MAX_FACTS})`);
   return { facts, errors: [] };

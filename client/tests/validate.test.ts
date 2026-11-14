@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildPrompt, validate, revalidateFacts, MAX_TEXT_LENGTH } from "@/lib/validate";
+import { buildPrompt, validate, revalidateFacts, fixYears, MAX_TEXT_LENGTH } from "@/lib/validate";
 import { GeminiError } from "@/lib/gemini";
 
 // Gemini is mocked: these test the plumbing around the model (checks, parsing, dates, errors).
@@ -75,6 +75,30 @@ describe("validate", () => {
     expect(revalidateFacts([{ text: "a", event_start: "2026-11-15T00:00:00Z" }])[0].event_start).toBeInstanceOf(Date);
     expect(() => revalidateFacts([])).toThrow();
     expect(() => revalidateFacts([{ text: " " }])).toThrow();
+  });
+});
+
+describe("year sanity check (Gemini returned 2025 for 'yesterday')", () => {
+  it("moves a date a year off to the nearest year when the note has no year, keeping Toronto time", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = await validate("Ruth visited yesterday.", null, { now, generate: gen([{ text: "Ruth visited on Fri Nov 13", event_start: "2025-11-13T00:00:00-05:00" }]) });
+    expect(r.facts[0].event_start?.toISOString()).toBe("2026-11-13T05:00:00.000Z");
+  });
+  it("moves the end with the start", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [f] = fixYears([{ text: "x", event_start: new Date("2025-11-12T05:00:00Z"), event_end: new Date("2025-11-16T05:00:00Z") }], "Anna is visiting Nov 12-16", now);
+    expect([f.event_start?.toISOString(), f.event_end?.toISOString()]).toEqual(["2026-11-12T05:00:00.000Z", "2026-11-16T05:00:00.000Z"]);
+  });
+  it("keeps the wall-clock time across a DST difference (Nov 3 2027 is EDT, Nov 3 2026 is EST)", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [f] = fixYears([{ text: "x", event_start: new Date("2027-11-03T22:00:00Z") }], "dinner Nov 3 at 6pm", new Date("2026-11-14T12:00:00-05:00"));
+    expect(f.event_start?.toISOString()).toBe("2026-11-03T23:00:00.000Z"); // 6pm EDT stays 6pm EST
+  });
+  it("leaves dates within 6 months, and any date when the note states a year", () => {
+    const near = [{ text: "x", event_start: new Date("2027-01-03T05:00:00Z") }];
+    expect(fixYears(near, "recital on Jan 3", now)).toEqual(near);
+    const far = [{ text: "x", event_start: new Date("2025-06-01T04:00:00Z") }];
+    expect(fixYears(far, "Margaret moved in June 2025", now)).toEqual(far);
   });
 });
 
