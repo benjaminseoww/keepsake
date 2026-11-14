@@ -18,7 +18,7 @@ flowchart LR
     TalkAPI["/api/talk/session<br/>/api/talk/recall<br/>/api/turns, /api/turns/:id/answer"]
     Writes["lib/writes.ts<br/>createMemory, correctMemory, reviewMemory,<br/>listReviews, listMemories, forgetMemory"]
     Validate["lib/validate.ts<br/>split facts, resolve dates"]
-    Classify["lib/classify.ts<br/>vector search + rerank, cutoff 0.8<br/>(Gemini judge off unless CLASSIFY_GEMINI=1)"]
+    Classify["lib/classify.ts<br/>vector search + rerank, cutoff 0.8,<br/>times stripped rerank, cutoff 0.55<br/>(Gemini judge off unless CLASSIFY_GEMINI=1)"]
     Recall["lib/recall.ts<br/>vector search + rerank, MIN_RERANK_SCORE 0.5"]
     GeminiLib["lib/gemini.ts"]
     VoyageLib["lib/voyage.ts"]
@@ -99,7 +99,7 @@ sequenceDiagram
     C->>VY: embed (voyage-3.5, document)
     C->>DB: $vectorSearch memory_vec<br/>(verified, family+caregiver scopes)
     C->>VY: rerank-2.5 top 10
-    C-->>WR: candidates, supersedes = score >= 0.8
+    C-->>WR: candidates, supersede if score >= 0.8,<br/>or times stripped score >= 0.55 with a different time or date
   end
   Note over WR,VY: Voyage error -> 503 unavailable, nothing saved
 
@@ -112,7 +112,7 @@ sequenceDiagram
   else Family, supersede proposed
     WR-->>W: 200 needs_confirmation (single fact)<br/>or batch saved:false + facts_token (multi-fact)
     W->>API: confirm:true + confirm_supersedes<br/>(batch: facts[] + facts_token, no text)
-    API->>WR: createMemory (facts_token HMAC checked, else 400; no Gemini)
+    API->>WR: createMemory (facts_token HMAC checked, else 400, no Gemini)
     WR->>C: classify again
     alt still proposes the same old memory
       WR->>DB: transaction: old -> superseded, new verified,<br/>review approved, audit approve
@@ -123,7 +123,7 @@ sequenceDiagram
   end
 
   F->>API: GET /api/reviews (family only)
-  API-->>F: pending items with "This will supersede <old>"
+  API-->>F: pending items with "This will supersede (old note)"
   alt confirm
     F->>WR: POST /api/memories/:id/review {decision: confirm}
     WR->>DB: transaction: new verified, old superseded if still verified,<br/>audit approve (or verify if no proposal)
