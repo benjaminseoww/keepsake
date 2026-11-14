@@ -1,87 +1,94 @@
 # Keepsake decision log
 
-Maintained by Mica (tech lead review). Newest entries at the bottom of each section.
+Current decisions, grouped by topic. Each item is what holds now. IDs in brackets are the original ones. Superseded items are at the end.
 
-## Requirements (from hackathon brief)
-- Event: MongoDB "Agents in Context" Toronto hackathon, Memory You Can Govern track. Submissions due Nov 14 2026, 5 pm ET.
-- Required: ElevenLabs, the provisioned MongoDB Atlas cluster, a 1-minute demo video.
-- Banned: Streamlit, dashboard as the main feature, medical advice, basic RAG.
-- Product: voice agent for a person with early dementia (Margaret); family can verify, correct, scope and expire her memories.
-- Demo flow (relayed by keepsake, Nov 14; restated by Daniel directly the same day): Margaret asks a question within the knowledge base and the voice answers; "How did it know this?" opens a trace screen with her question and the memory record (who added it, when, verification state); a caregiver adds information, the system checks it against existing memories (vector search + rerank-2.5, system labels supersedes/related/unrelated) and the conflicting fact shows up; the family admin sees "this memory will supersede the old one <old memory>" and confirms or denies. The admin never classifies.
+## Data model
 
-## Source of truth
-- main @ 68d851a is source of truth; user-service DB model stale (relayed by keepsake, Nov 14). The tests branch was merged into main (PR #3) and deleted. feat/memory-service is cut from main. user-service/ is used only for its API/token contract (JWT {user_id, name, role, person_id}, Bearer, Node/TS Fastify) and docs/memory-service-plan.md.
-- Reported by keepsake, not verified: migration 002 has already run on the shared Atlas cluster (people stripped of role/person_id; households has no timezone).
+- [R1] Every insert writes `schema_version: 1`. Memories use main's model plus a `review` subdoc and a `retracted` status.
+- [D4] Memories have no `kind` field.
+- [A10] No expiry: do not write `expires_at`, and do not use a TTL index. Time-bound facts keep their dates in the text (for example "Anna is visiting Nov 12-16"). Optional `event_start` / `event_end` are allowed, but recall never filters on them.
+- Status is one of `unverified`, `verified`, `superseded`, `retracted`. Scope is one of `private`, `family`, `caregiver`.
+- [R11] `review.state: pending` is the review queue's source of truth; `flagged` is a UI hint only.
+- [A14] Each review candidate is `{memory_id, supersedes: bool, rerank_score}`. `proposed_supersedes` is the top-ranked candidate with `supersedes: true`, or null.
+- [R6] `turns` is `{schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], answer}`, indexed `{person_id: 1, at: -1}`. Time-series turns stay in NEXT_STEPS.
+- [R10] Audit actions: `write` on create; `approve` or `deny` on a review decision; `verify` when confirm has no proposed supersede. `audit_log` includes `person_id` and is indexed `{person_id: 1, at: -1}`.
+- [R12] Embeddings are voyage-3.5, 1024 dims, cosine; `input_type` is `document` on write and `query` on recall. The Python seed stays as dev tooling, with this config in one documented constant set.
+- [R7] Never store an empty embedding when the embed can run before the insert, and never copy `key` or `review` onto a new doc. Do not port `queries.js` `correct()` or `retrieveFallback()` as they are.
 
-## Stack
-- MongoDB Atlas + Atlas Vector Search.
-- Voyage AI: voyage-3.5 embeddings, rerank-2.5 reranking.
-- ElevenLabs voice.
-- Node/TypeScript backend.
+## Roles and permissions
 
-## Fixed decisions (Daniel)
-- D1: The SYSTEM classifies a new memory against existing ones as supersedes / related / unrelated.
-- D2: The admin only grants or denies permission to override. The admin never classifies.
-- D3: MVP has no leakage test.
-- D4: MVP has no memory `kind` field.
-- D5: Topic guidance is hardcoded in the prompt.
-- D6: Deferred items go in NEXT_STEPS.md.
-- D7: Follow MongoDB best practices.
+- [R1] The JWT is trusted for `user_id` only. `person_id`, `role` and `admin` are resolved from `households.members` on every request.
+- Readable scopes: the person reads `private`, `family` and `caregiver`; family reads `family` and `caregiver`; a caregiver reads `caregiver`.
+- [R22] A writer's response never includes `proposed_supersedes`, `message`, or candidates for a memory outside that writer's readable scopes.
+- [A12] Any family member (role `family`, including the admin) can verify, deny, confirm a supersede, and correct. Caregivers cannot; their writes stay unverified until a family member reviews them.
+- [A13] The admin's only extra power is managing household members (`POST /users` in `backend/`, already `requireFamilyAdmin`).
+- [D2] People never classify; they only confirm or deny. The system classifies.
+- [A2] `correct` stays as an endpoint: a family member creates a new re-embedded memory that supersedes the old one; a caregiver correction goes through the normal unverified + review path.
+- [R4] Memories Margaret creates herself have scope `family`, status `unverified`, `flagged: true` and `review` pending. `proposed_supersedes` is always null when `source.role` is `person`. Private wishes stay private and verified.
 
-## Review decisions
-- R1 (source: REVIEW-001): The memory service builds on main's model: review subdoc, retracted status, schema_version: 1 on every insert. The JWT is trusted for user_id only; person_id, role and admin are resolved per request from households.members (whoami).
-- R2 (source: REVIEW-001): Write/review endpoints: POST /memories (embed, candidate search, rerank-2.5, system classify, insert unverified + flagged + review pending, audit write); GET /reviews (pending queue with the proposed old memory joined); POST /reviews/:id/decision {confirm|deny}, admin only (members.admin).
-- R3 (source: REVIEW-001): Confirm = new memory verified, review.state approved, supersedes set; old memory superseded; audit approve. Deny = new memory retracted, review.state denied; old untouched; audit deny. Confirm with no proposal = plain verify. Both run in one multi-document transaction. If the old memory is gone (TTL), treat as plain verify. New memory inherits the old memory's scope and, if it has none, its expires_at.
-- R4 (source: REVIEW-001): Person-created memories: scope family, unverified, flagged, review pending; classifier labels honestly but proposed_supersedes is always null when source.role is person.
-- R5 (source: REVIEW-001): /search returns unverified memories tagged with status (R10, R16). rerank-2.5 is always on with a calibrated RERANK_MIN; vector order only if the Voyage call fails.
-- R6 (source: REVIEW-001): Add a `turns` collection {schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, status, score, rerank_score}], answer?}, index {person_id:1, at:-1}; /search writes it and returns turn_id; GET /turns/:id returns hydrated memories with display names. Time series stays in NEXT_STEPS.
-- R7 (source: REVIEW-001): Do not port queries.js correct() or retrieveFallback() as is. Never store an empty embedding; never copy key or review onto a new doc; gate /search on the vector index being READY.
-- R8 (source: REVIEW-001): Expiry: TTL index for deletion plus a $match on expires_at (null or > now) right after $vectorSearch.
-- R9 (source: REVIEW-001): Scenario tests run against MONGODB_DB=keepsake_test with its own memory_vec index, never the demo DB. seed.py upserts demo logins into people.
-- R10 (source: REVIEW-001): Audit actions: write on create, approve/deny for admin decisions; fix seed.py:154 (correct -> approve). Add person_id to audit_log with index {person_id:1, at:-1} via migration.
-- R11 (source: REVIEW-001): review.state pending is the review queue's source of truth; flagged is a UI hint only.
-- R12 (source: REVIEW-001): Python seed stays as dev tooling for the hackathon; embedding config (voyage-3.5, 1024 dims, cosine, input_type document/query) is one documented constant set. Services are Node/TS.
-- R13 (source: REVIEW-001): Agent prompt (hardcoded, per D5) carries the husband rule, "you mentioned" phrasing for unverified memories, and no medical advice.
-- R14 (source: REVIEW-001): Defaults pending Daniel: only the admin confirms/denies, no direct family "correct" endpoint in MVP (Q2); candidate search limited to the writer's readable scopes (Q3); admin's own superseding writes stay pending (Q6).
+## Read path
 
-## Open questions for Daniel
-- Q1 (source: REVIEW-001): Who labels candidates supersedes/related/unrelated: an LLM (which provider/model) on top of rerank-2.5, or rerank-2.5 with an instruction query and cutoffs only? Blocks the write path.
-- Q2 (source: REVIEW-001): Admin-only confirm/deny (recommended) or any family member? Drop the direct "correct" endpoint for MVP so every supersede is system-proposed (recommended)?
-- Q3 (source: REVIEW-001): Candidate search within the writer's readable scopes (recommended) or all scopes as write_path.json:2 says?
-- Q4 (source: REVIEW-001): In the video, does Margaret speak (ElevenLabs Conversational AI speech in) or type with voice out only (NEXT_STEPS:51)?
-- Q5 (source: REVIEW-001): Should the trace screen show the agent's answer text (needs capture from ElevenLabs) or only the question plus retrieved memories?
-- Q6 (source: REVIEW-001): Admin's own superseding write (W09): pending for her to confirm (recommended) or auto-approved?
+- [R5] Recall includes unverified memories and tags each result with its status.
+- [R16, A7] Recall is `$vectorSearch` (pre-filtered by `person_id`, readable scopes, and status in `[verified, unverified]`; `numCandidates` 100, limit 20), then rerank-2.5 (keep the top 5), then drop hits below `MIN_RERANK_SCORE` (a config constant, calibrated on the seed so out-of-knowledge questions return nothing). If none remain, return an empty list. Use vector order only if the Voyage call fails. The regex fallback runs only while the vector index is building.
+- [R6, R17] Every recall writes a `turns` doc and returns `turn_id`. The client posts the spoken answer to `POST /api/turns/:id/answer`.
+- [A5] The trace (`GET /api/turns`, newest first, and `GET /api/turns/:id`) shows the question, the answer, and for each memory who added it, when, its status and its scores.
+- [D5, A11, R13] The agent prompt is hardcoded and includes today's date, the husband rule, "you mentioned" for unverified memories, no medical advice, and topic guidance written inline. Answer only from recall results; with none, say you are not sure and suggest asking family. Do not read the `topic_guidance` collection.
 
-## Daniel's answers (Nov 14, 12:11 ET, direct)
-- A1 (Q1): Classifier choice follows best practices; Mica to research (MongoDB/Voyage docs) and specify.
-- A2 (Q2): `correct` stays as an endpoint.
-- A3 (Q3): Conflict detection results are shown to the admin when verifying. A caregiver sees candidates only for memories they have permission to read. All non-admin entries are UNVERIFIED until admin verifies.
-- A4 (Q4): Margaret speaks to the bot and hears the answer (voice in and out).
-- A5 (Q5): Trace shows everything: question, retrieved memories with author/metadata, scores, and the answer text.
-- A6 (Q6): When the admin writes a superseding fact, show "Are you sure? This will supersede <old>". On yes, it is approved immediately.
-- A7: Add a minimum relevance score so out-of-knowledge questions return nothing.
-- A8: Mica owns the project spec/requirements. ElevenLabs integration is built by another team member from our specs, so the recall tool contract must be complete and standalone.
+## Write path
 
-## REVIEW-002 (main @ 2cdf56c, quick check, Nov 14 12:25 ET)
-- main @ 2cdf56c is the current source of truth; snapshot at main-2cdf56c/.
-- R15: Non-admin writes (dashboard addMemory, remember) must run classify and save as unverified + review pending. No direct "verified" insert except an admin after the A6 confirm.
-- R16: Recall = $vectorSearch (pre-filtered) then rerank-2.5 then MIN_RERANK_SCORE cutoff (empty if below). Regex fallback only while the index is building.
-- R17: Every recall writes a turns doc and returns turn_id; the client posts the answer text back to it.
-- R18: Verify/deny require admin:true from households.members.
-- Q7: Is expires_at in the MVP at all? If yes: excluded from recall after the date, kept for audit (no TTL delete).
-- Q8: One home for memory logic: Next.js client (recommended) or keepsake's separate memory-service?
-- Q9: topic_guidance collection (built) vs hardcoded prompt (D5)?
+- [R15] Caregiver adds, and Margaret's remember (non-private), run classify and save the memory as `unverified` with `review.state: pending`, `flagged: true`, and an audit `write`.
+- Family writes with no proposed supersede are saved `verified` immediately.
+- [A6, A12] When a family member writes or corrects a fact that would supersede another, the API returns `{needs_confirmation: true, old:{memory_id, text, author_name, created_at}}` and saves nothing. The UI shows "Are you sure? This will supersede <old>".
+- [R21] A confirm resend carries `confirm: true` and `confirm_supersedes` set to the old `memory_id` that was shown. The server saves only if classify still proposes that id (for `correct`, the target is that id) and the old memory is still `verified`; otherwise it returns 409 with a fresh needs-confirmation payload, and nothing is saved. On a match, the new memory is saved `verified`, the old one is marked `superseded`, and audit `approve` is written, in one transaction.
+- [R20] `correct` inherits the old memory's scope; `addMemory` uses the scope the writer chose (caregiver writes are always `caregiver`).
+- [A3] The writer's response lists only candidates in that writer's readable scopes ([R22]). The family review queue shows every candidate the family may read, including ones the original writer could not see.
+- [R23] The review queue is `GET /api/reviews`, backed by `listReviews(session)` in `client/lib`, which `page.tsx` may also call directly. It returns every memory with `review.state: pending`, each with the proposed old memory looked up (text, author, date) so the card can say "This will supersede <old>". Family only; caregivers get 403.
+- [R3] Confirm and deny run in one `session.withTransaction`. Confirm: the new memory becomes `verified`, `review.state` `approved`, `supersedes` set; the old memory becomes `superseded`; audit `approve`. With no proposal, it is a plain verify (audit `verify`). Deny: the new memory becomes `retracted`, `review.state` `denied`; the old memory is untouched; audit `deny`. `verifyMemory` still supersedes a proposed old memory even if the confirmer cannot read it.
 
-## Daniel's answers (Nov 14, 12:24 ET, direct)
-- A9 (Q8): All memory logic lives in the Next.js client (client/lib + /api routes + dashboard actions). keepsake ports its turns, classifier and rerank work there; no separate memory-service.
-- A10 (Q7): No expiry. Time-bound facts are stored with their dates in the text (e.g. "Anna is visiting Nov 12-16") so the agent can answer "is Anna visiting this week?". The prompt gets today's date. Optional event_start/event_end fields are allowed but recall never excludes by date. Drop expires_at from writes and recall; TTL index not used.
-- A11 (Q9): Topic guidance hardcoded in the prompt (D5 stands). Recall stops reading the topic_guidance collection.
+## Classification
 
-## Daniel's answers (Nov 14, 12:26 ET, direct)
-- A12: Any family member (role family, including the admin) can verify, deny, confirm a supersede and correct. Caregivers cannot verify; their writes stay unverified until a family member reviews them. Supersedes R18 and the "admin-only confirm" parts of R14/A3/A6.
-- A13: The admin's only extra power is managing household members (POST /users etc. in backend/, already requireFamilyAdmin).
-- A6 restated under A12: when a family member writes or corrects a fact that supersedes another, show "Are you sure? This will supersede <old>"; on yes it is approved immediately.
+- [A14] Classification is binary: the new memory either supersedes a candidate or it does not. `classify` returns `{proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}]}`.
+- [R19] Classify candidates are `verified` memories only.
+- [R24] Classify excludes `private`-scope memories unless the writer is the person, so Margaret's private memories never surface in a family or caregiver review.
+- [A1] The method follows MongoDB and Voyage best practices. Until Q1 is closed, keep a rerank-2.5 cutoff behind one `classify` function so the method can be swapped.
 
-## Daniel's answers (relayed by keepsake, Nov 14 12:35 ET)
-- A14: Classification is binary: a new memory supersedes a candidate or it doesn't. related/unrelated are dropped. classify() returns {proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}]}. Amends D1. proposed_supersedes = top-ranked candidate with supersedes true, else null.
-- Spec commits go on branch docs/memory-spec (reported by keepsake as pushed at 9640875; Daniel opens the PR).
+## Voice and agent
+
+- Product: a voice agent for Margaret (early dementia). Family can verify, correct and scope her memories.
+- Demo: Margaret asks a question in the knowledge base and the voice answers; "How did it know this?" opens a trace of the question, the answer and each memory (who added it, when, status, scores); a caregiver adds a fact; the system finds conflicts (vector search + rerank-2.5, binary supersede); any family member sees "this memory will supersede the old one <old>" and confirms or denies.
+- [A4] Margaret speaks to the bot and hears the answer (voice in and out through ElevenLabs).
+- [A8] Client tools, which are the interface to the ElevenLabs teammate: `recall {query}` returns `{turn_id, memories[{text, status}]}`; `remember {text, private?}` returns `{saved, needs_family_review}`. After the agent answers, call `POST /api/turns/:turn_id/answer`. Remember returning no candidates is consistent with [A3] (stricter, not a conflict).
+
+## Process
+
+- Event: MongoDB "Agents in Context" Toronto hackathon, Memory You Can Govern track. Submissions due Nov 14 2026, 5 pm ET. Required: ElevenLabs, the provisioned MongoDB Atlas cluster, a 1-minute demo video. Banned: Streamlit, dashboard as the main feature, medical advice, basic RAG.
+- Source of truth: `main` at 2cdf56c (REVIEW-002). Behaviour is specified in `SPEC-memory.md`; this file logs the decisions; the work split is in `WORKSPLIT.md`.
+- [A9] All memory logic lives in the Next.js client (`client/lib`, `/api` routes, dashboard actions). There is no separate memory-service.
+- Stack: MongoDB Atlas + Atlas Vector Search; Voyage AI (voyage-3.5, rerank-2.5); ElevenLabs; the user service in `backend/` is Node/TypeScript (Fastify).
+- [A8] Mica owns the project spec. The ElevenLabs integration is built by another teammate from the spec, so the tool contract above must stay complete and standalone.
+- [R9] Scenario tests run against `MONGODB_DB=keepsake_test` with its own `memory_vec` index, never the demo DB. `seed.py` upserts demo logins into `people`.
+- [D3] The MVP has no leakage test.
+- [D6] Deferred items go in NEXT_STEPS (see the "Out of scope" section of `SPEC-memory.md`): leakage test, `kind`, live push notifications, an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.
+- [D7] Follow MongoDB best practices.
+
+## Open questions
+
+- [Q1] How should `classify` decide `supersedes` true or false for each candidate: an LLM (which provider and model?) on top of rerank-2.5, or rerank-2.5 alone with cutoff scores? This is the remaining blocker for the classifier. Until it is answered, use a rerank cutoff behind one function ([A1]).
+
+## Superseded
+
+- [D1] The system classified each candidate as supersedes / related / unrelated. Replaced by [A14].
+- [D2] "The admin only grants or denies permission to override." The admin-only part was replaced by [A12]. People still never classify.
+- [R8] Expiry used a TTL index plus a `$match` on `expires_at` after `$vectorSearch`. Replaced by [A10].
+- [R3] The clauses "if the old memory is gone (TTL), treat as plain verify" and "the new memory inherits the old memory's `expires_at`" were dropped with [A10]. The confirm/deny state changes in [R3] still stand.
+- [R14] Temporary defaults: admin-only confirm/deny, no direct `correct` in the MVP, candidate search limited to the writer's readable scopes, and the admin's own superseding writes stay pending. Replaced by [A2], [A3], [A6] and [A12].
+- [R18] Verify/deny required `admin: true` from `households.members`. Replaced by [A12].
+- [A3] "All non-admin entries are UNVERIFIED until admin verifies" and "conflict results are shown to the admin." Replaced by [A12] (any family member reviews; a family write with no supersede is saved verified). The candidate-visibility rule in [A3] still stands.
+- [A6] Originally applied only to the admin's own superseding write. Restated under [A12] for any family member.
+- [R15] "No direct verified insert except an admin after the A6 confirm" and "every non-admin write is unverified." Replaced by [A12] and the family-write rule in `SPEC-memory.md`.
+- [R1, R2] A separate memory-service built from `main` at 68d851a, with `POST /memories`, `GET /reviews` and `POST /reviews/:id/decision`. Replaced by REVIEW-002 (`main` at 2cdf56c) and [A9] (logic lives in the Next.js client).
+- [Q2]–[Q6] Answered by [A2]–[A6], with [A12] amending the admin-only parts of [A3] and [A6].
+- [Q7] Answered by [A10]: no expiry.
+- [Q8] Answered by [A9]: all memory logic is in the Next.js client.
+- [Q9] Answered by [A11]: topic guidance is hardcoded in the prompt ([D5] stands).
+- The brief and early demo flow said family can "expire" memories, the system labels "supersedes/related/unrelated", and only the family admin confirms. Replaced by [A10], [A14] and [A12].

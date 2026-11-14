@@ -1,0 +1,1088 @@
+openapi: 3.1.0
+info:
+  title: Keepsake write API
+  version: "1.0.0"
+  summary: Write-path contract for the Keepsake frontend (Track B)
+  description: |
+    Write-path contract for the frontend developer. Recall, search and trace
+    are owned by someone else and are not in this file.
+
+    Routes under `/api/` are HTTP. Operations with `x-server-action` are
+    Next.js server actions in `client/app/dashboard/actions.ts`, not HTTP
+    routes. `GET /api/reviews` is backed by `listReviews(session)` in
+    `client/lib`, which `page.tsx` may also call directly (R23).
+
+    Auth: the `keepsake_session` cookie (JWT issued by the user service).
+    Trust the token for `user_id` only; resolve `person_id`, `role` and
+    `admin` from `households.members` on every request. Family (including
+    the admin) can verify, deny, confirm a supersede and correct.
+    Caregivers cannot (403). Margaret adds memories only through
+    `POST /api/talk/remember`.
+
+    Every inserted memory has `schema_version: 1`. Status is
+    `unverified` | `verified` | `superseded` | `retracted`. Scope is
+    `private` | `family` | `caregiver`. Review candidates are
+    `{memory_id, supersedes: bool, rerank_score}`. Do not write
+    `expires_at`. Classify is binary (A14); candidates are `verified`
+    memories only (R19), excluding `private` scope unless the writer is
+    the person (R24). The method is still Q1, so keep a rerank-2.5
+    cutoff behind one function.
+
+    Examples use the seed household: Margaret (person), Anna (family,
+    admin), David (family), Ravi (caregiver). Seed ObjectIds in examples
+    are illustrative.
+
+servers:
+  - url: /
+    description: Next.js client (`client/`)
+
+tags:
+  - name: Remember
+    description: Margaret's voice-tool write (`POST /api/talk/remember`).
+  - name: Add
+    description: Dashboard add-note / add-memory (`addMemory` server action).
+  - name: Review
+    description: Pending queue, confirm and deny. Family only.
+  - name: Correct
+    description: Family correction of an existing memory.
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/talk/remember:
+    post:
+      operationId: remember
+      tags: [Remember]
+      summary: Margaret adds a memory by voice
+      description: |
+        Existing HTTP route, `client/app/api/talk/remember/route.ts`.
+        Only the person (Margaret) may call it; anyone else gets 401.
+
+        The system runs classify, but `proposed_supersedes` is always
+        null when `source.role` is `person` (R4). A non-private memory
+        is saved with scope `family`, status `unverified`, `flagged: true`
+        and `review` pending, and an audit `write` is recorded. Private
+        wishes (`private: true`) are saved with scope `private`, status
+        `verified`, and no review.
+
+        The ElevenLabs tool contract (A8) is the response shape:
+        `{saved, needs_family_review}`. Candidates may be stored on the
+        review subdoc but are never returned here, so this route cannot
+        leak a memory the voice client should not see. That is
+        consistent with A3 (stricter, not a conflict).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RememberRequest"
+            examples:
+              family_scope:
+                summary: Margaret mentions a visit
+                value:
+                  text: Margaret said her sister Ruth visited yesterday
+              private_wish:
+                summary: A private wish, no family review
+                value:
+                  text: I want to give my mother's ring to Leo, not to Anna
+                  private: true
+      responses:
+        "200":
+          description: Memory saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RememberResponse"
+              examples:
+                needs_review:
+                  summary: Non-private remember, waiting for family
+                  value:
+                    saved: true
+                    needs_family_review: true
+                private_saved:
+                  summary: Private wish, verified immediately
+                  value:
+                    saved: true
+                    needs_family_review: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /actions/addMemory:
+    post:
+      operationId: addMemory
+      tags: [Add]
+      x-server-action: addMemory
+      summary: Family or caregiver adds a memory
+      description: |
+        Next.js server action `addMemory` in
+        `client/app/dashboard/actions.ts`. Not an HTTP route. Called
+        from the family and caregiver dashboard forms.
+
+        The system runs classify over `verified` memories only (R19),
+        excluding `private` scope unless the writer is the person
+        (R24). `addMemory` uses the scope the writer chose (R20);
+        caregiver writes are always `caregiver`. Family writers may
+        set `family` or `caregiver`. `private` is not allowed here.
+
+        Caregiver: the memory is saved `unverified` with `review`
+        pending, `flagged: true`, and an audit `write`. A family
+        member later confirms or denies it in the review queue.
+
+        The writer's response lists only candidates in that writer's
+        readable scopes (A3). If the proposed old memory is not
+        readable by the writer, omit `proposed_supersedes`, `message`,
+        and that candidate (R22). Other readable candidates may still
+        be listed.
+
+        Family, classify proposes a supersede, `confirm` is not true:
+        return 200 with a `needs_confirmation` payload
+        (`{needs_confirmation: true, old:{memory_id, text,
+        author_name, created_at}}`) and save nothing. The client shows
+        "Are you sure? This will supersede <old>" and resends the same
+        body with `confirm: true` and `confirm_supersedes` set to that
+        old `memory_id` (R21).
+
+        Family, `confirm: true`: the server re-runs classify and saves
+        only if it still proposes `confirm_supersedes` and that memory
+        is still `verified`. On a match, save the memory `verified`
+        with `review` approved, mark the old memory `superseded`, and
+        write audit `approve`, in one transaction. Otherwise return
+        409 with a fresh `needs_confirmation` payload (not the error
+        shape) and save nothing.
+
+        Family, no supersede: save the memory `verified` immediately.
+
+        Do not send `expires_at`. Today's action still accepts it and
+        returns void; this is the intended contract.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AddMemoryRequest"
+            examples:
+              ravi_physio:
+                $ref: "#/components/examples/RaviAddsPhysioForm"
+              anna_dinner_confirm:
+                $ref: "#/components/examples/AnnaDinnerConfirmForm"
+              anna_no_supersede:
+                $ref: "#/components/examples/AnnaAddNoSupersedeForm"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMemoryRequest"
+            examples:
+              ravi_physio:
+                $ref: "#/components/examples/RaviAddsPhysio"
+              anna_dinner:
+                $ref: "#/components/examples/AnnaDinnerChange"
+              anna_dinner_confirm:
+                $ref: "#/components/examples/AnnaDinnerConfirm"
+              anna_no_supersede:
+                $ref: "#/components/examples/AnnaAddNoSupersede"
+      responses:
+        "200":
+          description: Saved, or a confirmation is required before anything is saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddMemoryResult"
+              examples:
+                caregiver_saved_pending:
+                  summary: Ravi's physio note, waiting for family review. The proposed old memory (physio_weekly) is caregiver-scoped, so it is safe to include in Ravi's response (R22).
+                  value:
+                    saved: true
+                    needs_confirmation: false
+                    needs_family_review: true
+                    memory_id: "672e00000000000000000021"
+                    status: unverified
+                    scope: caregiver
+                    proposed_supersedes: "672e00000000000000000001"
+                    message: This will supersede Physio visit is every Tuesday at 2pm
+                    candidates:
+                      - memory_id: "672e00000000000000000001"
+                        text: Physio visit is every Tuesday at 2pm
+                        author_name: Anna
+                        created_at: "2026-10-25T10:00:00-04:00"
+                        supersedes: true
+                        rerank_score: 0.91
+                family_needs_confirmation:
+                  summary: Anna's dinner-time change, nothing saved yet
+                  value:
+                    needs_confirmation: true
+                    old:
+                      memory_id: "672e00000000000000000002"
+                      text: Anna is bringing dinner on Saturday Nov 14 at 6pm
+                      author_name: Anna
+                      created_at: "2026-11-14T09:00:00-05:00"
+                family_confirmed:
+                  summary: Anna resends with confirm=true
+                  value:
+                    saved: true
+                    needs_confirmation: false
+                    needs_family_review: false
+                    memory_id: "672e00000000000000000022"
+                    status: verified
+                    scope: family
+                    proposed_supersedes: "672e00000000000000000002"
+                    supersedes: "672e00000000000000000002"
+                    audit_action: approve
+                    candidates:
+                      - memory_id: "672e00000000000000000002"
+                        text: Anna is bringing dinner on Saturday Nov 14 at 6pm
+                        author_name: Anna
+                        created_at: "2026-11-14T09:00:00-05:00"
+                        supersedes: true
+                        rerank_score: 0.88
+                family_saved_verified:
+                  summary: Family write with no supersede
+                  value:
+                    saved: true
+                    needs_confirmation: false
+                    needs_family_review: false
+                    memory_id: "672e00000000000000000024"
+                    status: verified
+                    scope: family
+                    proposed_supersedes: null
+                    candidates: []
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/ConfirmMismatch"
+
+  /api/reviews:
+    get:
+      operationId: listReviews
+      tags: [Review]
+      summary: List pending reviews
+      description: |
+        HTTP route `GET /api/reviews`, backed by one
+        `listReviews(session)` function in `client/lib`, which
+        `page.tsx` may also call directly (R23).
+
+        Family only (any family member, including the admin).
+        Caregivers get 403. Returns every memory with
+        `review.state: pending` for the household, newest first. When
+        `proposed_supersedes` is set, the old memory is looked up
+        (text, author name, date) and `message` is
+        "This will supersede <old text>".
+
+        The queue shows every candidate the family may read (family
+        and caregiver scopes), including ones the original writer
+        could not see. Private-scope candidates are omitted, so
+        Margaret's private memories never surface here (R24).
+      responses:
+        "200":
+          description: Pending review queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueue"
+              examples:
+                family_queue:
+                  summary: Anna or David opens the review queue
+                  value:
+                    reviews:
+                      - id: "672e00000000000000000021"
+                        text: Physio is every second Tuesday now, not every week
+                        status: unverified
+                        scope: caregiver
+                        flagged: true
+                        author_name: Ravi
+                        author_role: caregiver
+                        created_at: "2026-11-14T12:00:00-05:00"
+                        message: This will supersede Physio visit is every Tuesday at 2pm
+                        proposed_old:
+                          memory_id: "672e00000000000000000001"
+                          text: Physio visit is every Tuesday at 2pm
+                          author_name: Anna
+                          created_at: "2026-10-25T10:00:00-04:00"
+                        review:
+                          state: pending
+                          proposed_supersedes: "672e00000000000000000001"
+                          candidates:
+                            - memory_id: "672e00000000000000000001"
+                              text: Physio visit is every Tuesday at 2pm
+                              author_name: Anna
+                              created_at: "2026-10-25T10:00:00-04:00"
+                              supersedes: true
+                              rerank_score: 0.91
+                          decided_by: null
+                          decided_at: null
+                      - id: "672e00000000000000000011"
+                        text: Margaret's reading glasses are now kept on the bedside table
+                        status: unverified
+                        scope: caregiver
+                        flagged: true
+                        author_name: Ravi
+                        author_role: caregiver
+                        created_at: "2026-11-13T16:00:00-05:00"
+                        message: This will supersede Reading glasses are usually on the kitchen windowsill
+                        proposed_old:
+                          memory_id: "672e00000000000000000005"
+                          text: Reading glasses are usually on the kitchen windowsill
+                          author_name: Ravi
+                          created_at: "2026-10-20T11:00:00-04:00"
+                        review:
+                          state: pending
+                          proposed_supersedes: "672e00000000000000000005"
+                          candidates:
+                            - memory_id: "672e00000000000000000005"
+                              text: Reading glasses are usually on the kitchen windowsill
+                              author_name: Ravi
+                              created_at: "2026-10-20T11:00:00-04:00"
+                              supersedes: true
+                              rerank_score: 0.86
+                          decided_by: null
+                          decided_at: null
+                      - id: "672e00000000000000000013"
+                        text: Margaret said she lives on Maple Avenue
+                        status: unverified
+                        scope: family
+                        flagged: true
+                        author_name: Margaret
+                        author_role: person
+                        created_at: "2026-11-13T10:00:00-05:00"
+                        message: null
+                        proposed_old: null
+                        review:
+                          state: pending
+                          proposed_supersedes: null
+                          candidates:
+                            - memory_id: "672e00000000000000000006"
+                              text: Margaret has lived at 14 Elm Street since 2019
+                              author_name: Anna
+                              created_at: "2026-09-01T12:00:00-04:00"
+                              supersedes: false
+                              rerank_score: 0.64
+                          decided_by: null
+                          decided_at: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /actions/verifyMemory:
+    post:
+      operationId: verifyMemory
+      tags: [Review]
+      x-server-action: verifyMemory
+      summary: Family confirms a pending review
+      description: |
+        Next.js server action `verifyMemory` in
+        `client/app/dashboard/actions.ts`. Not an HTTP route. This is
+        the confirm half of confirm/deny. Any family member may call it
+        (Anna or David). Caregivers get 403.
+
+        Runs in one `session.withTransaction`. The new memory becomes
+        `verified`, `review.state` `approved`, `supersedes` set; the
+        old memory becomes `superseded`; audit `approve`. With no
+        proposal, it is a plain verify (audit `verify`). 409 if the
+        review is already decided. If a proposed old memory is not
+        readable by the confirmer, it is still superseded.
+
+        This action returns exactly `ReviewDecisionResponse`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+            example:
+              id: "672e00000000000000000021"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+            examples:
+              confirm_physio:
+                summary: Anna confirms Ravi's physio change
+                value:
+                  id: "672e00000000000000000021"
+              confirm_plain:
+                summary: David verifies a pending note with no supersede
+                value:
+                  id: "672e00000000000000000014"
+      responses:
+        "200":
+          description: Review confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecisionResponse"
+              examples:
+                approve_override:
+                  summary: Confirm a proposed supersede
+                  value:
+                    decision: confirm
+                    memory_id: "672e00000000000000000021"
+                    new_status: verified
+                    review_state: approved
+                    supersedes: "672e00000000000000000001"
+                    old_status: superseded
+                    audit_action: approve
+                    decided_by: anna
+                    decided_at: "2026-11-14T12:10:00-05:00"
+                plain_verify:
+                  summary: Confirm with no proposal (David)
+                  value:
+                    decision: confirm
+                    memory_id: "672e00000000000000000014"
+                    new_status: verified
+                    review_state: approved
+                    supersedes: null
+                    old_status: null
+                    audit_action: verify
+                    decided_by: david
+                    decided_at: "2026-11-14T12:15:00-05:00"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /actions/denyMemory:
+    post:
+      operationId: denyMemory
+      tags: [Review]
+      x-server-action: denyMemory
+      summary: Family denies a pending review
+      description: |
+        Next.js server action `denyMemory` in
+        `client/app/dashboard/actions.ts`. Not an HTTP route. Any
+        family member may call it. Caregivers get 403.
+
+        Runs in one `session.withTransaction`. The new memory becomes
+        `retracted`, `review.state` `denied`; the old memory is
+        untouched; audit `deny`. 409 if the review is already decided.
+
+        This action returns exactly `ReviewDecisionResponse`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+            example:
+              id: "672e00000000000000000013"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+            examples:
+              deny_maple:
+                summary: Anna denies Margaret's Maple Avenue statement
+                value:
+                  id: "672e00000000000000000013"
+      responses:
+        "200":
+          description: Review denied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecisionResponse"
+              examples:
+                deny:
+                  summary: Deny; the Elm Street address stays verified
+                  value:
+                    decision: deny
+                    memory_id: "672e00000000000000000013"
+                    new_status: retracted
+                    review_state: denied
+                    supersedes: null
+                    old_status: verified
+                    audit_action: deny
+                    decided_by: anna
+                    decided_at: "2026-11-14T12:20:00-05:00"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /actions/correctMemory:
+    post:
+      operationId: correctMemory
+      tags: [Correct]
+      x-server-action: correctMemory
+      summary: Family corrects an existing memory
+      description: |
+        Next.js server action `correctMemory` in
+        `client/app/dashboard/actions.ts`. Not an HTTP route. Family
+        only. Caregivers get 403; a caregiver correction goes through
+        `addMemory` instead (unverified + review pending).
+
+        The new text is re-embedded and the new memory supersedes the
+        old one. The new memory inherits the old memory's scope (R20).
+
+        If `confirm` is not true, return 200 with a
+        `needs_confirmation` payload and save nothing. Resending with
+        `confirm: true` and `confirm_supersedes` set to the old
+        memory's id (the `id` being corrected) saves only if that
+        target still matches and the old memory is still `verified`
+        (R21). On a match, save the new memory `verified`, mark the
+        old one `superseded`, and write audit `approve`, in one
+        transaction. Otherwise return 409 with a fresh
+        `needs_confirmation` payload (not the error shape) and save
+        nothing.
+
+        Today's action is family-only, writes immediately (no confirm
+        step), does not use a transaction, and records audit `correct`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CorrectMemoryRequest"
+            examples:
+              ask:
+                $ref: "#/components/examples/AnnaCorrectPhysioForm"
+              confirm:
+                $ref: "#/components/examples/AnnaCorrectPhysioConfirmForm"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrectMemoryRequest"
+            examples:
+              ask:
+                $ref: "#/components/examples/AnnaCorrectPhysio"
+              confirm:
+                $ref: "#/components/examples/AnnaCorrectPhysioConfirm"
+      responses:
+        "200":
+          description: Saved, or a confirmation is required before anything is saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrectMemoryResult"
+              examples:
+                needs_confirmation:
+                  summary: Anna corrects physio; waiting for confirm
+                  value:
+                    needs_confirmation: true
+                    old:
+                      memory_id: "672e00000000000000000001"
+                      text: Physio visit is every Tuesday at 2pm
+                      author_name: Anna
+                      created_at: "2026-10-25T10:00:00-04:00"
+                confirmed:
+                  summary: Anna resends with confirm=true
+                  value:
+                    saved: true
+                    needs_confirmation: false
+                    needs_family_review: false
+                    memory_id: "672e00000000000000000023"
+                    status: verified
+                    scope: caregiver
+                    proposed_supersedes: "672e00000000000000000001"
+                    supersedes: "672e00000000000000000001"
+                    audit_action: approve
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ConfirmMismatch"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: keepsake_session
+      description: |
+        JWT issued by the user service at login and stored in the
+        `keepsake_session` cookie. Trust `user_id` only; resolve
+        `person_id`, `role` and `admin` from `households.members`.
+
+  responses:
+    BadRequest:
+      description: The request is missing a required field or a value is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: bad_request
+              message: text is required
+    Unauthorized:
+      description: Not signed in, or the caller is not the person on `/api/talk/remember`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unauthorized
+              message: Sign in required
+    Forbidden:
+      description: The caller's role cannot perform this action (for example a caregiver confirming a review).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: forbidden
+              message: Only a family member can confirm or deny a review
+    NotFound:
+      description: The memory does not exist, or it is not visible to this caller.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: not_found
+              message: Memory not found
+    Conflict:
+      description: The review has already been confirmed or denied.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: conflict
+              message: This review has already been decided
+    ConfirmMismatch:
+      description: |
+        `confirm` was true but classify no longer proposes
+        `confirm_supersedes`, or the old memory is no longer
+        `verified` (R21). Nothing is saved. The body is a fresh
+        `NeedsConfirmation` payload, not the `{error:{code,message}}`
+        shape.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NeedsConfirmation"
+          examples:
+            different_proposal:
+              summary: Classify now proposes a different verified memory
+              value:
+                needs_confirmation: true
+                old:
+                  memory_id: "672e00000000000000000003"
+                  text: Margaret takes her morning tea with milk, no sugar, around 8
+                  author_name: Anna
+                  created_at: "2026-10-18T08:00:00-04:00"
+
+  schemas:
+    ObjectId:
+      type: string
+      pattern: "^[a-fA-F0-9]{24}$"
+      description: MongoDB ObjectId, 24-character hex string.
+      examples:
+        - "672e00000000000000000001"
+
+    Scope:
+      type: string
+      enum: [private, family, caregiver]
+
+    MemoryStatus:
+      type: string
+      enum: [unverified, verified, superseded, retracted]
+
+    ReviewState:
+      type: string
+      enum: [pending, approved, denied]
+
+    Role:
+      type: string
+      enum: [person, family, caregiver]
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict]
+            message:
+              type: string
+
+    Candidate:
+      type: object
+      additionalProperties: false
+      required: [memory_id, supersedes]
+      properties:
+        memory_id:
+          $ref: "#/components/schemas/ObjectId"
+        text:
+          type: string
+          description: Looked-up memory text, when the caller is allowed to read it.
+        author_name:
+          type: [string, "null"]
+        created_at:
+          type: [string, "null"]
+          format: date-time
+        supersedes:
+          type: boolean
+          description: Whether the new memory supersedes this candidate.
+        rerank_score:
+          type: [number, "null"]
+
+    OldMemory:
+      type: object
+      additionalProperties: false
+      description: The memory this write would supersede. The UI shows "Are you sure? This will supersede <text>".
+      required: [memory_id, text, author_name, created_at]
+      properties:
+        memory_id:
+          $ref: "#/components/schemas/ObjectId"
+        text:
+          type: string
+        author_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    NeedsConfirmation:
+      type: object
+      additionalProperties: false
+      required: [needs_confirmation, old]
+      properties:
+        needs_confirmation:
+          type: boolean
+          const: true
+        old:
+          $ref: "#/components/schemas/OldMemory"
+
+    RememberRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        private:
+          type: boolean
+          default: false
+          description: If true, save as a private verified wish with no family review.
+
+    RememberResponse:
+      type: object
+      additionalProperties: false
+      required: [saved, needs_family_review]
+      properties:
+        saved:
+          type: boolean
+          const: true
+        needs_family_review:
+          type: boolean
+          description: False only for private wishes.
+
+    AddMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+        scope:
+          $ref: "#/components/schemas/Scope"
+          description: |
+            The scope the writer chose (R20). Family writers may set
+            `family` or `caregiver`. Ignored for caregivers (always
+            `caregiver`). `private` is not allowed here.
+        confirm:
+          type: boolean
+          default: false
+          description: "Family only. Resend the same body with confirm=true after a needs_confirmation response."
+        confirm_supersedes:
+          $ref: "#/components/schemas/ObjectId"
+          description: |
+            Required when confirm is true (R21). The old memory_id
+            shown in the needs_confirmation response. The server saves
+            only if classify still proposes this id and the memory is
+            still verified.
+      if:
+        properties:
+          confirm:
+            const: true
+        required: [confirm]
+      then:
+        required: [confirm_supersedes]
+
+    SavedWrite:
+      type: object
+      additionalProperties: false
+      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, candidates]
+      properties:
+        saved:
+          type: boolean
+          const: true
+        needs_confirmation:
+          type: boolean
+          const: false
+        needs_family_review:
+          type: boolean
+        memory_id:
+          $ref: "#/components/schemas/ObjectId"
+        status:
+          $ref: "#/components/schemas/MemoryStatus"
+        scope:
+          $ref: "#/components/schemas/Scope"
+        proposed_supersedes:
+          description: |
+            The proposed old memory_id. Omitted (or null) when there
+            is no proposal, or when that old memory is not readable by
+            the writer (R22).
+          anyOf:
+            - $ref: "#/components/schemas/ObjectId"
+            - type: "null"
+        supersedes:
+          description: Set on a family write that was confirmed and has already replaced the old memory.
+          anyOf:
+            - $ref: "#/components/schemas/ObjectId"
+            - type: "null"
+        audit_action:
+          type: string
+          enum: [write, approve, verify]
+        message:
+          type: [string, "null"]
+          description: |
+            Present on a caregiver save that proposes a supersede the
+            writer can read, so the UI can show "This will supersede
+            <old>". Omitted when the old memory is not in the writer's
+            readable scopes (R22).
+        candidates:
+          type: array
+          description: |
+            Candidates filtered to the writer's readable scopes (A3,
+            R22). A candidate outside those scopes is omitted, even if
+            it was the proposed supersede.
+          items:
+            $ref: "#/components/schemas/Candidate"
+
+    AddMemoryResult:
+      oneOf:
+        - $ref: "#/components/schemas/NeedsConfirmation"
+        - $ref: "#/components/schemas/SavedWrite"
+
+    ReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+          description: The pending (new) memory being confirmed or denied.
+
+    ReviewDecisionResponse:
+      type: object
+      additionalProperties: false
+      required: [decision, memory_id, new_status, review_state, audit_action]
+      properties:
+        decision:
+          type: string
+          enum: [confirm, deny]
+        memory_id:
+          $ref: "#/components/schemas/ObjectId"
+        new_status:
+          $ref: "#/components/schemas/MemoryStatus"
+        review_state:
+          $ref: "#/components/schemas/ReviewState"
+        supersedes:
+          anyOf:
+            - $ref: "#/components/schemas/ObjectId"
+            - type: "null"
+        old_status:
+          description: Status of the proposed old memory after the decision. Null when there was no proposal.
+          anyOf:
+            - $ref: "#/components/schemas/MemoryStatus"
+            - type: "null"
+        audit_action:
+          type: string
+          enum: [approve, verify, deny]
+        decided_by:
+          type: string
+          description: "user_id of the family member who decided."
+        decided_at:
+          type: string
+          format: date-time
+
+    ReviewItem:
+      type: object
+      additionalProperties: false
+      required: [id, text, status, scope, flagged, author_name, author_role, created_at, review, proposed_old, message]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        text:
+          type: string
+        status:
+          $ref: "#/components/schemas/MemoryStatus"
+        scope:
+          $ref: "#/components/schemas/Scope"
+        flagged:
+          type: boolean
+        author_name:
+          type: string
+        author_role:
+          $ref: "#/components/schemas/Role"
+        created_at:
+          type: string
+          format: date-time
+        message:
+          type: [string, "null"]
+          description: 'This will supersede <old text> when there is a proposal; otherwise null.'
+        proposed_old:
+          anyOf:
+            - $ref: "#/components/schemas/OldMemory"
+            - type: "null"
+        review:
+          type: object
+          additionalProperties: false
+          required: [state, proposed_supersedes, candidates]
+          properties:
+            state:
+              $ref: "#/components/schemas/ReviewState"
+            proposed_supersedes:
+              anyOf:
+                - $ref: "#/components/schemas/ObjectId"
+                - type: "null"
+            candidates:
+              type: array
+              items:
+                $ref: "#/components/schemas/Candidate"
+            decided_by:
+              type: [string, "null"]
+            decided_at:
+              type: [string, "null"]
+              format: date-time
+
+    ReviewQueue:
+      type: object
+      additionalProperties: false
+      required: [reviews]
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewItem"
+
+    CorrectMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [id, text]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+          description: The existing memory being corrected.
+        text:
+          type: string
+          minLength: 1
+          description: Replacement text, re-embedded on save.
+        confirm:
+          type: boolean
+          default: false
+        confirm_supersedes:
+          $ref: "#/components/schemas/ObjectId"
+          description: |
+            Required when confirm is true (R21). Must be the id of the
+            memory being corrected. The server saves only if that
+            target still matches and the old memory is still verified.
+      if:
+        properties:
+          confirm:
+            const: true
+        required: [confirm]
+      then:
+        required: [confirm_supersedes]
+
+    CorrectMemoryResult:
+      oneOf:
+        - $ref: "#/components/schemas/NeedsConfirmation"
+        - $ref: "#/components/schemas/SavedWrite"
+
+  examples:
+    RaviAddsPhysio:
+      summary: Ravi adds a schedule change
+      value:
+        text: Physio is every second Tuesday now, not every week
+    RaviAddsPhysioForm:
+      summary: Ravi adds a schedule change (form)
+      value:
+        text: Physio is every second Tuesday now, not every week
+    AnnaDinnerChange:
+      summary: Anna changes dinner time, first submit
+      value:
+        text: Anna is bringing dinner at 7pm today, not 6
+        scope: family
+    AnnaDinnerConfirm:
+      summary: Anna confirms the dinner-time change
+      value:
+        text: Anna is bringing dinner at 7pm today, not 6
+        scope: family
+        confirm: true
+        confirm_supersedes: "672e00000000000000000002"
+    AnnaDinnerConfirmForm:
+      summary: Anna confirms the dinner-time change (form)
+      value:
+        text: Anna is bringing dinner at 7pm today, not 6
+        scope: family
+        confirm: true
+        confirm_supersedes: "672e00000000000000000002"
+    AnnaAddNoSupersede:
+      summary: Anna adds a fact that does not supersede anything
+      value:
+        text: Margaret's favourite biscuits are ginger snaps
+        scope: family
+    AnnaAddNoSupersedeForm:
+      summary: Anna adds a fact that does not supersede anything (form)
+      value:
+        text: Margaret's favourite biscuits are ginger snaps
+        scope: family
+    AnnaCorrectPhysio:
+      summary: Anna corrects the weekly physio memory
+      value:
+        id: "672e00000000000000000001"
+        text: Physio is every second Tuesday now, not every week
+    AnnaCorrectPhysioForm:
+      summary: Anna corrects the weekly physio memory (form)
+      value:
+        id: "672e00000000000000000001"
+        text: Physio is every second Tuesday now, not every week
+    AnnaCorrectPhysioConfirm:
+      summary: Anna confirms the physio correction
+      value:
+        id: "672e00000000000000000001"
+        text: Physio is every second Tuesday now, not every week
+        confirm: true
+        confirm_supersedes: "672e00000000000000000001"
+    AnnaCorrectPhysioConfirmForm:
+      summary: Anna confirms the physio correction (form)
+      value:
+        id: "672e00000000000000000001"
+        text: Physio is every second Tuesday now, not every week
+        confirm: true
+        confirm_supersedes: "672e00000000000000000001"
