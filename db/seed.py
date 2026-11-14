@@ -29,8 +29,9 @@ now = datetime.now(timezone.utc)
 ago = lambda **kw: now - timedelta(**kw)
 day = lambda d: d.astimezone().strftime("%A %b %-d")  # e.g. "Saturday Nov 14", local zone
 
-anna = {"role": "family", "user_id": "anna"}
-ravi = {"role": "caregiver", "user_id": "ravi"}
+anna = {"role": "family", "user_id": "anna", "name": "Anna"}
+ravi = {"role": "caregiver", "user_id": "ravi", "name": "Ravi"}
+NAMES = {"anna": "Anna", "ravi": "Ravi", "david": "David", "margaret": "Margaret"}
 
 for name in ["memories", "households", "audit_log", "replay_runs"]:
     db[name].delete_many({})
@@ -149,7 +150,8 @@ for m in memories:
             "decided_by": by, "decided_at": at,
         }}})
         if state == "denied":
-            db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "deny", "actor": {"role": "family", "user_id": by},
+            db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "deny",
+                                     "actor": {"role": "family", "user_id": by, "name": NAMES[by]},
                                      "old_id": None, "new_id": None, "at": at})
 
 counts = {s: db.memories.count_documents({"status": s}) for s in ["verified", "unverified", "superseded", "retracted"]}
