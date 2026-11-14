@@ -14,7 +14,7 @@ async function post(path: string, body: unknown) {
   return res.json();
 }
 
-// recall is the agent's only tool in the MVP; Margaret doesn't add memories by voice (A16).
+// recall is the agent's only tool in the MVP; the person doesn't add memories by voice (A16).
 const clientTools = {
   recall: async ({ query }: { query: string }) => {
     const data = await post("/api/talk/recall", { query, conversation_id: convo.conversationId });
@@ -61,10 +61,10 @@ function Talk() {
     }
     const res = await fetch("/api/talk/session");
     if (!res.ok) return setError("I couldn't start. Please try again.");
-    const { signedUrl, agentId, name, today } = await res.json();
+    const { signedUrl, agentId, name, today, topic_guidance } = await res.json();
     const shared = {
       clientTools,
-      dynamicVariables: { name, today },
+      dynamicVariables: { name, today, topic_guidance },
       overrides: { agent: { prompt: { prompt: PROMPT }, firstMessage: FIRST_MESSAGE } },
     };
     startSession(signedUrl ? { ...shared, signedUrl } : { ...shared, agentId });
