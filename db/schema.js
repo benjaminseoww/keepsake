@@ -26,6 +26,33 @@ db.createCollection("memories", {
       flagged:    { bsonType: "bool" },
       expires_at: { bsonType: ["date", "null"] },
       embedding:  { bsonType: "array" },      // voyage-3.5, 1024 dims
+      key:        { bsonType: "string" },   // stable seed key, used by tests
+      review: {
+        // Present on anything that needs an admin decision.
+        bsonType: "object",
+        required: ["state"],
+        properties: {
+          state: { enum: ["pending", "approved", "denied"] },
+          // The memory this one would replace. Set by the system, not the admin.
+          proposed_supersedes: { bsonType: ["objectId", "null"] },
+          // What the system found and how it classified each candidate.
+          candidates: {
+            bsonType: "array",
+            maxItems: 10,
+            items: {
+              bsonType: "object",
+              required: ["memory_id", "label"],
+              properties: {
+                memory_id:    { bsonType: "objectId" },
+                label:        { enum: ["supersedes", "related", "unrelated"] },
+                rerank_score: { bsonType: ["double", "int"] }
+              }
+            }
+          },
+          decided_by: { bsonType: ["string", "null"] },
+          decided_at: { bsonType: ["date", "null"] }
+        }
+      },
       created_at: { bsonType: "date" }
     }
   }},
@@ -35,6 +62,8 @@ db.createCollection("memories", {
 // TTL: deletes a memory once expires_at passes. Docs with null expires_at are ignored.
 db.memories.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 db.memories.createIndex({ person_id: 1, status: 1, flagged: 1 });
+// Admin review queue: pending items for a household, newest first.
+db.memories.createIndex({ person_id: 1, "review.state": 1, created_at: -1 });
 
 // One doc per household: the person plus everyone who helps them.
 // Read together with every role check, so stored together.
@@ -74,7 +103,7 @@ db.createCollection("audit_log", {
     bsonType: "object",
     required: ["memory_id", "action", "actor", "at"],
     properties: {
-      action: { enum: ["write", "verify", "correct", "forget", "expire", "rescope"] },
+      action: { enum: ["write", "verify", "correct", "approve", "deny", "forget", "expire", "rescope"] },
       actor: {
         bsonType: "object",
         required: ["role", "user_id"],

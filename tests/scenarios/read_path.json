@@ -1,50 +1,168 @@
 {
   "_comment": "Read path: someone asks a question. Pipeline: voyage-3.5 query embed -> $vectorSearch (person_id, role scopes, status in verified/unverified) -> rerank-2.5 -> threshold. must_include: keys that must be in the final results. must_exclude: keys that must never appear. expect_empty: nothing should pass the threshold.",
   "cases": [
-    { "id": "R01_direct_visitors",   "as": "margaret", "query": "Is anyone coming today?",
-      "must_include": ["ravi_weekdays", "anna_dinner"] },
-
-    { "id": "R02_paraphrase_helper", "as": "margaret", "query": "When does my helper come over?",
-      "must_include": ["ravi_weekdays"] },
-
-    { "id": "R03_object_location",   "as": "margaret", "query": "Where did I leave my glasses?",
-      "must_include": ["glasses"] },
-
-    { "id": "R04_word_overlap_trap", "as": "margaret", "query": "What time is my tea?",
-      "must_include": ["tea"], "must_exclude": ["anna_dinner"] },
-
-    { "id": "R05_husband_topic",     "as": "margaret", "query": "When is George picking me up?",
-      "must_include": ["husband"],
-      "note": "Retrieval must find the fact so the hardcoded guidance can apply. The reply must not say he died." },
-
-    { "id": "R06_private_visible_to_owner", "as": "margaret", "query": "Who should get my mother's ring?",
-      "must_include": ["ring_private"] },
-
-    { "id": "R07_private_hidden_from_family", "as": "anna", "query": "Who should get the ring?",
-      "must_exclude": ["ring_private"] },
-
-    { "id": "R08_family_note_hidden_from_caregiver", "as": "ravi", "query": "Is Margaret moving anywhere?",
-      "must_exclude": ["assisted_living", "address", "ring_private"] },
-
-    { "id": "R09_caregiver_sees_caregiver_scope", "as": "ravi", "query": "Where is the spare key?",
-      "must_include": ["spare_key"] },
-
-    { "id": "R10_unverified_marked", "as": "margaret", "query": "Did Ruth visit?",
-      "must_include": ["ruth_unverified"],
-      "expect_status": { "ruth_unverified": "unverified" },
-      "note": "Reply should say 'you mentioned', not state it as fact." },
-
-    { "id": "R11_off_topic", "as": "margaret", "query": "What is the capital of France?",
-      "expect_empty": true },
-
-    { "id": "R12_superseded_hidden", "as": "margaret", "query": "When is my physio?",
-      "setup": [{ "action": "supersede", "old": "physio_weekly",
-                  "new_text": "Physio visit is every second Tuesday at 2pm" }],
-      "must_include_text": ["Physio visit is every second Tuesday at 2pm"],
-      "must_exclude": ["physio_weekly"] },
-
-    { "id": "R13_expired_hidden", "as": "margaret", "query": "Is Joan coming by?",
-      "setup": [{ "action": "expire", "key": "joan_books" }],
-      "must_exclude": ["joan_books"] }
+    {
+      "id": "R01_direct_visitors",
+      "as": "margaret",
+      "query": "Is anyone coming today?",
+      "must_include": [
+        "ravi_weekdays",
+        "anna_dinner"
+      ]
+    },
+    {
+      "id": "R02_paraphrase_helper",
+      "as": "margaret",
+      "query": "When does my helper come over?",
+      "must_include": [
+        "ravi_weekdays"
+      ]
+    },
+    {
+      "id": "R03_object_location",
+      "as": "margaret",
+      "query": "Where did I leave my glasses?",
+      "must_include": [
+        "glasses"
+      ]
+    },
+    {
+      "id": "R04_word_overlap_trap",
+      "as": "margaret",
+      "query": "What time is my tea?",
+      "must_include": [
+        "tea"
+      ],
+      "must_exclude": [
+        "anna_dinner"
+      ]
+    },
+    {
+      "id": "R05_husband_topic",
+      "as": "margaret",
+      "query": "When is George picking me up?",
+      "must_include": [
+        "husband"
+      ],
+      "note": "Retrieval must find the fact so the hardcoded guidance can apply. The reply must not say he died."
+    },
+    {
+      "id": "R06_private_visible_to_owner",
+      "as": "margaret",
+      "query": "Who should get my mother's ring?",
+      "must_include": [
+        "ring_private"
+      ]
+    },
+    {
+      "id": "R07_private_hidden_from_family",
+      "as": "anna",
+      "query": "Who should get the ring?",
+      "must_exclude": [
+        "ring_private"
+      ]
+    },
+    {
+      "id": "R08_family_note_hidden_from_caregiver",
+      "as": "ravi",
+      "query": "Is Margaret moving anywhere?",
+      "must_exclude": [
+        "assisted_living",
+        "address",
+        "ring_private"
+      ]
+    },
+    {
+      "id": "R09_caregiver_sees_caregiver_scope",
+      "as": "ravi",
+      "query": "Where is the spare key?",
+      "must_include": [
+        "spare_key"
+      ]
+    },
+    {
+      "id": "R10_unverified_marked",
+      "as": "margaret",
+      "query": "Did Ruth visit?",
+      "must_include": [
+        "ruth_unverified"
+      ],
+      "expect_status": {
+        "ruth_unverified": "unverified"
+      },
+      "note": "Reply should say 'you mentioned', not state it as fact."
+    },
+    {
+      "id": "R11_off_topic",
+      "as": "margaret",
+      "query": "What is the capital of France?",
+      "expect_empty": true
+    },
+    {
+      "id": "R12_superseded_hidden",
+      "as": "margaret",
+      "query": "When is my physio?",
+      "setup": [
+        {
+          "action": "supersede",
+          "old": "physio_weekly",
+          "new_text": "Physio visit is every second Tuesday at 2pm"
+        }
+      ],
+      "must_include_text": [
+        "Physio visit is every second Tuesday at 2pm"
+      ],
+      "must_exclude": [
+        "physio_weekly"
+      ]
+    },
+    {
+      "id": "R13_expired_hidden",
+      "as": "margaret",
+      "query": "Is Joan coming by?",
+      "setup": [
+        {
+          "action": "expire",
+          "key": "joan_books"
+        }
+      ],
+      "must_exclude": [
+        "joan_books"
+      ]
+    },
+    {
+      "id": "R14_old_superseded_hidden",
+      "as": "margaret",
+      "query": "What time does Ravi come?",
+      "must_include": [
+        "ravi_weekdays"
+      ],
+      "must_exclude": [
+        "ravi_9am_old"
+      ]
+    },
+    {
+      "id": "R15_retracted_hidden",
+      "as": "ravi",
+      "query": "Where is the spare key?",
+      "must_include": [
+        "spare_key"
+      ],
+      "must_exclude": [
+        "key_doormat_denied"
+      ]
+    },
+    {
+      "id": "R16_pending_override_not_fact",
+      "as": "margaret",
+      "query": "Where are my reading glasses?",
+      "must_include": [
+        "glasses"
+      ],
+      "expect_status": {
+        "glasses_bedside_pending": "unverified"
+      },
+      "note": "The pending bedside memory may appear, but only as unverified. The verified windowsill memory stays the answer until Anna approves."
+    }
   ]
 }
