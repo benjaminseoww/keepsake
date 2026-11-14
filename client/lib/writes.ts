@@ -68,18 +68,18 @@ function requireRole(s: Session, roles: Role[], message: string) {
   if (!roles.includes(s.role)) throw new WriteError("forbidden", message);
 }
 
-// Signs the split facts (text and dates) we returned in a saved:false batch, for this writer and person.
+// Signs the split facts (text and dates) we returned in a saved:false batch, for this writer, person and scope.
 // A resend's facts must carry this token, so they are exactly what validate produced: the client
 // can't skip Gemini or change event_start/event_end. HMAC-SHA256 with AUTH_SECRET.
-function factsToken(s: Session, facts: Fact[]): string {
+function factsToken(s: Session, scope: Scope, facts: Fact[]): string {
   const secret = process.env.AUTH_SECRET;
   if (!secret) throw new Error("AUTH_SECRET is not set");
-  const body = JSON.stringify([s.user_id, s.person_id, facts.map((f) => [f.text, iso(f.event_start), iso(f.event_end)])]);
+  const body = JSON.stringify([s.user_id, s.person_id, scope, facts.map((f) => [f.text, iso(f.event_start), iso(f.event_end)])]);
   return createHmac("sha256", secret).update(body).digest("base64url");
 }
-function tokenMatches(s: Session, facts: Fact[], token: unknown): boolean {
+function tokenMatches(s: Session, scope: Scope, facts: Fact[], token: unknown): boolean {
   if (typeof token !== "string") return false;
-  const want = Buffer.from(factsToken(s, facts));
+  const want = Buffer.from(factsToken(s, scope, facts));
   const got = Buffer.from(token);
   return want.length === got.length && timingSafeEqual(want, got);
 }
@@ -105,12 +105,12 @@ async function validateOnce(s: Session, text: unknown): Promise<Fact[]> {
 // Validation layer (A17): every add runs validate (empty/length checks, then Gemini splits facts and
 // rewrites relative dates). The one exception is the confirm resend of a multi-fact note: it sends
 // back facts[] with the facts_token from our saved:false batch, and those facts are not re-split.
-async function factsOf(s: Session, input: MemoryInput): Promise<Fact[]> {
+async function factsOf(s: Session, input: MemoryInput, scope: Scope): Promise<Fact[]> {
   try {
     if (input.facts !== undefined) {
       if (input.confirm !== true || input.text) throw new WriteError("bad_request", "facts is only accepted on a confirm resend (confirm: true, no text)");
       const facts = revalidateFacts(input.facts);
-      if (!tokenMatches(s, facts, input.facts_token)) throw new WriteError("bad_request", "facts don't match the ones we returned; add the note again");
+      if (!tokenMatches(s, scope, facts, input.facts_token)) throw new WriteError("bad_request", "facts don't match the ones we returned; add the note again");
       return facts;
     }
     return await validateOnce(s, input.text);
@@ -232,7 +232,7 @@ export async function createMemory(s: Session, input: MemoryInput): Promise<Writ
   const scope = (isFamily(s) ? input.scope ?? "family" : "caregiver") as Scope;
   if (!readableScopes(s.role).includes(scope)) throw new WriteError("bad_request", "scope must be family or caregiver");
 
-  const facts = await factsOf(s, input);
+  const facts = await factsOf(s, input, scope);
   return addFacts(s, scope, facts, input);
 }
 
@@ -261,7 +261,7 @@ async function addFacts(s: Session, scope: Scope, facts: Fact[], input: MemoryIn
 
   const batchOf = (results: (SavedWrite | NeedsConfirmation | NotSaved)[], saved: boolean): BatchResult => ({
     batch: true, saved, facts: plans.map((p, i) => ({ text: p.fact.text, ...dates(p.fact), result: results[i] })),
-    ...(!saved && { facts_token: factsToken(s, facts) }),
+    ...(!saved && { facts_token: factsToken(s, scope, facts) }),
   });
 
   if (asks.some(Boolean)) {
@@ -303,7 +303,7 @@ export async function correctMemory(s: Session, id: string, input: MemoryInput):
   const old = await coll.findOne({ _id, person_id: s.person_id, scope: { $in: readableScopes(s.role) }, status: "verified" }, { projection: { embedding: 0 } });
   if (!old) throw new WriteError("not_found", "Memory not found");
 
-  const facts = await factsOf(s, { text: input.text });
+  const facts = await factsOf(s, { text: input.text }, old.scope as Scope);
   if (facts.length !== 1) throw new WriteError("bad_request", "A correction must be one fact. Add the other facts separately.");
   const fact = facts[0];
 

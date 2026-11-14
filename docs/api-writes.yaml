@@ -164,9 +164,9 @@ paths:
         - **`facts[]` is only a confirm resend:** every other add runs
           validate. `facts[]` without `confirm: true`, sent together with
           `text`, or without a `facts_token` that matches the facts is
-          400 and nothing is saved. The token is an HMAC over the writer,
+          400 and nothing is saved. The token is an HMAC over the writer, the scope,
           the person and each fact's text and dates, so a changed text,
-          a changed or invalid `event_start`/`event_end`, or an added or
+          a changed scope, a changed or invalid `event_start`/`event_end`, or an added or
           dropped fact is rejected. A one-fact note always uses the
           single-fact shapes.
         - **Family, no supersede:** saved `verified` with audit `write`.

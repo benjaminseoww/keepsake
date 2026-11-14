@@ -246,6 +246,10 @@ describe("createMemory: failures and batches", () => {
       const r = await ask();
       await rejects({ confirm: true, facts: resend(r), facts_token: r.facts_token?.replace(/^./, (c) => (c === "A" ? "B" : "A")) });
     });
+    it("a resend with a different scope is 400 (the token covers scope)", async () => {
+      const r = await ask();
+      await rejects({ confirm: true, scope: "caregiver", facts: resend(r), facts_token: r.facts_token });
+    });
     it("the unchanged resend saves with the dates validate returned", async () => {
       const r = await ask();
       const again = (await w.createMemory(anna, { confirm: true, facts: resend(r), facts_token: r.facts_token })) as import("@/lib/writes").BatchResult;
