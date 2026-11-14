@@ -1,85 +1,103 @@
 # Keepsake
 
-Family-governed memory for a person with early dementia.
+Family-governed memory for a person with early dementia. A voice agent answers from memories that family can verify, correct, scope and supersede.
 
-## Problem
+Built for the [Memory You Can Govern](https://cerebralvalley.ai/e/mongodb-toronto-hackathon/details) track at [Agents in Context Toronto](https://cerebralvalley.ai/e/mongodb-toronto-hackathon) (MongoDB, 14 Nov 2026). The official track brief is quoted in [docs/demo.md](docs/demo.md).
 
-Built for the **Memory You Can Govern** track at [Agents in Context Toronto](https://cerebralvalley.ai/e/mongodb-toronto-hackathon) (MongoDB, 14 Nov 2026).
+## Project Description
 
-The official public event page does not publish the named track briefs. This is the track text as the team copied it from the event [details](https://cerebralvalley.ai/e/mongodb-toronto-hackathon/details) page:
+People with early dementia often lose recent events first: who is coming, what was already said, what changed. An agent that stores whatever it hears and repeats it back can make that worse.
 
-> What an agent remembers is data someone has to answer for. Build an agent using MongoDB Atlas and Vector Search to persist and retrieve memory, so that memory changes what it does on the next run, with rules for who can read each memory, how long it lives, and how it gets corrected or forgotten.
->
-> How do you keep one client's or team's memory from leaking into another's?
-> How does the agent fix or drop a memory that turns out wrong or expired?
-> How do you prove a memory changed the agent's behavior and didn't just fill the prompt?
+Keepsake is a voice agent for the person, plus a family review screen. Family own the memory. They verify new notes, correct or forget wrong ones, set scope (`family` or `caregiver`), and confirm when a new note should supersede an old one. The person talks to the agent by voice (ElevenLabs). The agent answers only from verified memories, so a correction changes the next answer.
 
-Keepsake answers that with a voice agent whose memory family can verify, correct, scope and supersede. Every vector search is pre-filtered by person and by the caller's role. Recall uses verified memories only, so a correction changes the next answer. The brief also asked about expiry; the MVP does not expire memories.
+A caregiver can add a shift note. It stays unverified until family review, and the caregiver only sees caregiver-scope memories.
 
-For a 3-minute talk, walk this page in order: Problem, Flow 1, Flow 2, Governance. Diagrams: [docs/architecture.md](docs/architecture.md). Write-path demo script: [docs/demo.md](docs/demo.md).
+The demo household is invented: Margaret (person), Anna (family, admin), David (family), Ravi (caregiver). The app is not hardcoded to those names.
 
-## What it does
+## Features
 
-A person talks to the agent by voice (ElevenLabs). The agent answers only from memories family has verified.
+- Family verify, deny, correct and forget memories
+- Scope rules: family read `family` and `caregiver`; caregivers read `caregiver` only; the person gets those verified memories through the voice agent
+- Supersede proposals when a new note replaces an old one (rerank cutoff, time-stripped rerank for reschedules, and a Gemini judge for contradictions the score misses, such as "has no grandkids" vs "has two grandchildren")
+- Voice recall: ElevenLabs calls `POST /api/recall`, which searches verified memories only
+- Caregiver briefing and an "Ask about" box, both limited to caregiver scope
+- Trace screen (`/trace`) showing the question, the answer, and the memory ids behind it
 
-Family add, correct, verify, deny and forget memories. A caregiver can add a note; it stays unverified until family review. The caregiver briefing and "Ask about" box see only caregiver-scope memories.
+Expiry is not built. Time-bound facts keep dates in the text and on optional `event_start` / `event_end` fields. Recall does not filter on those dates.
 
-Demo household (invented): Margaret (person), Anna (family, admin), David (family), Ravi (caregiver). The app is not hardcoded to those names.
+## Use of MongoDB Products
 
-## Flow 1: write
+- **MongoDB Atlas** is the store. Collections: `memories`, `people` (login only), `households` (roles and membership), `audit_log`, and `turns` (one doc per recall, read by `/trace`). Schema validation (`$jsonSchema`) is on those collections (`db/schema.js` and migrations).
+- **Atlas Vector Search.** Writes and reads run `$vectorSearch` on the `memory_vec` index (`memories.embedding`, 1024 dims, cosine). The index has filter fields `person_id`, `status` and `scope`. Every search pre-filters to that person, `status: verified`, and the scopes the caller's role may see, so one household's memory does not leak into another.
+- **Voyage AI** (MongoDB's embedding and rerank models). The app calls `voyage-3.5` to embed notes (`input_type: document`) and questions (`input_type: query`), stores the vectors on the memory docs, and calls `rerank-2.5` after the vector search.
+- **BSON Date.** When a note names a day or time, validate writes `event_start` and optional `event_end` as BSON Date (`db/schema.js`). Those dates feed the time-stripped supersede check and the caregiver briefing. There is no TTL index and no `expires_at` write path (dropped in migration `004`).
+- **Transactions and indexes.** Confirm, deny and correct use `session.withTransaction` so the new memory, the old status and the audit row change together. Regular indexes cover review queues, unique `people` emails and `user_id`s, unique `households.person_id` and `members.user_id`, `audit_log` by memory, and `turns` by `{person_id, at}`.
+- We do not use change streams or Atlas Search / `$rankFusion` in this build.
 
-Family or a caregiver adds a note (`POST /api/memories`, or a correction).
+## Architecture
 
-1. Gemini (`gemini-3.5-flash-lite`) splits the note into facts and resolves dates (`America/Toronto`). A date more than about six months out, when the note gave no year, is moved to the nearer year.
-2. Each fact is embedded with Voyage `voyage-3.5` (`input_type: document`).
-3. Atlas `$vectorSearch` on `memory_vec` (`numCandidates` 100, `limit` 20), filtered to that person, `status: verified`, scope `family` or `caregiver`.
-4. Voyage `rerank-2.5` keeps the top 10. Rerank scores **relevance to the new note**, not contradiction.
-5. A candidate is proposed as a supersede if:
-   - the plain rerank score is at least **0.8**, or
-   - a time-stripped rerank (times and dates replaced by placeholders) scores at least **0.55** and the time or date differs, or
-   - the Gemini judge marks it as a replacement or contradiction. On `main` the judge is on by default (`CLASSIFY_GEMINI=0` turns it off). It only looks at candidates scoring at least **0.5** that the rules did not already mark, and it can only add a supersede, never remove one.
+The Next.js app is the only service. Login, writes, recall and traces all run there.
 
-Family: a proposed supersede returns 200 and saves nothing until they confirm. Caregiver: the note is always saved `unverified` with review pending. Family then confirm or deny.
+```mermaid
+flowchart LR
+  subgraph Browser
+    Dash["Dashboard"]
+    Talk["Talk page"]
+  end
 
-**Rerank example.** "Leo is now coming tomorrow at 7pm, not 6pm" vs the 6pm Leo visit scored 0.785 plain and 0.818 with times stripped, so the time-stripped rule catches the reschedule. "Margaret has no grandkids" vs "Margaret has two grandchildren, Leo and Maya" scored 0.648: related, but under 0.8, so the judge is what flags the contradiction. "Anna calls every evening around 7" scored 0.249 against that grandkids memory and stays out.
+  subgraph Next["Next.js app :3000"]
+    App["API routes, server actions, login"]
+  end
 
-A later change on `fix/classify-contradiction` (`ce2e0f8`, not on `main` yet) lowers the judge floor to 0.4 and counts implied contradictions, such as "has no kids" vs "has two grandchildren".
+  subgraph Atlas["MongoDB Atlas"]
+    Mem[("memories + memory_vec")]
+    People[("people")]
+    HH[("households")]
+    Audit[("audit_log")]
+    Turns[("turns")]
+  end
 
-## Flow 2: read
+  Voyage["Voyage AI voyage-3.5 embeddings and rerank-2.5"]
+  Gemini["Google Gemini gemini-3.5-flash-lite"]
+  Eleven["ElevenLabs Conversational AI"]
+  LangSmith["LangSmith"]
 
-The person asks by voice. ElevenLabs calls the client's `recall` tool, which posts `POST /api/recall`. The caregiver "Ask about" box uses the same route.
+  Dash --> App
+  Talk -->|"GET /api/talk/session"| App
+  Talk -->|"POST /api/recall, then the turn answer"| App
+  Talk <-->|"audio and the recall tool"| Eleven
+  App --> People
+  App --> HH
+  App --> Mem
+  App --> Audit
+  App --> Turns
+  App -->|"embed and rerank"| Voyage
+  App -->|"validate, caregiver ask, classify judge"| Gemini
+  App -->|"get-signed-url"| Eleven
+  App -.->|"after recall and answer, if enabled"| LangSmith
+```
 
-1. Embed the question with `voyage-3.5` (`input_type: query`).
-2. `$vectorSearch` on `memory_vec` (`numCandidates` 100, `limit` 20), filtered to that person, `status: verified` only, and the scopes the caller's role may see.
-3. `rerank-2.5` keeps the top 5, then drops hits below **0.5**.
-4. Those memories are returned and written to `turns`. The voice agent answers only from that list. If nothing passes, it says it is not sure and suggests asking family.
+The read and write flow, including embedding and reranking, is in [docs/architecture.md](docs/architecture.md).
 
-If rerank fails, recall falls back to vector order (floor 0.7). If the vector index is missing, it falls back to a keyword find. An embed failure returns no memories.
+## How it works
 
-## Governance
+**Flow 1: write.** Family or a caregiver adds a note (`POST /api/memories`). Gemini splits facts and resolves dates. Each fact is embedded with `voyage-3.5`, searched with `$vectorSearch` on `memory_vec`, and reranked with `rerank-2.5`. A candidate is proposed as a supersede if the plain score is at least 0.8, or a time-stripped rerank scores at least 0.55 and the time differs, or the Gemini judge flags a contradiction (on by default; it only adds, never removes; floor 0.5 on `main`). Family confirm before a supersede is saved. A caregiver note is always saved unverified for review.
 
-| Role | Read | Write |
-|---|---|---|
-| Person | Verified `family` and `caregiver`, via the voice agent only | None in the MVP |
-| Family | `family` and `caregiver` | Add (saved verified, or after confirm if it would replace one), correct, verify, deny, forget, see `/trace` |
-| Caregiver | `caregiver` only | Add a note (always unverified, always caregiver scope, waiting for family) |
+Rerank scores relevance, not contradiction. A Leo 7pm reschedule scored 0.785 plain and 0.818 with times stripped. "Has no grandkids" vs "has two grandchildren" scored 0.648, under 0.8, so the judge has to catch it. A later change on `fix/classify-contradiction` (`ce2e0f8`) lowers that floor to 0.4 and counts implied contradictions such as "has no kids". That is not on `main` yet.
 
-There is no `private` scope. The login cookie is trusted for `user_id` only. Name, role and household are re-read from `households.members` on every request.
+**Flow 2: read.** The person asks by voice. ElevenLabs calls `POST /api/recall` (the caregiver "Ask about" box uses the same route). The question is embedded as a query, searched with `$vectorSearch` (verified only, scoped by role), and reranked; hits below 0.5 are dropped. The agent answers only from that list. The turn, including cited memory ids, is written to `turns`.
 
-A superseded memory drops out of recall because search is verified-only. Forget deletes the memory. Each reply logs the memory ids it used (`turns`); family can open `/trace`.
+## Tech stack
 
-Expiry is not built (decision A10). Time-bound facts keep their dates in the text, with optional `event_start` / `event_end` that recall does not filter on.
-
-## Stack
-
-- MongoDB Atlas and Atlas Vector Search (`memory_vec`: 1024 dims, cosine, filters on `person_id`, `scope`, `status`)
-- Voyage AI: `voyage-3.5` embeddings, `rerank-2.5`
-- Google Gemini: `gemini-3.5-flash-lite` (validate, caregiver ask, classify judge)
-- ElevenLabs Conversational AI (voice)
-- LangSmith (optional traces and recall evals)
-- One Next.js app (`client/`): UI, login, and all API routes. The old Fastify user service is gone.
-
-Accounts live in `people`; roles live in `households`. See [docs/architecture.md](docs/architecture.md).
+| Piece | Use |
+|---|---|
+| MongoDB Atlas | Document store, schema validation, transactions, indexes |
+| Atlas Vector Search | `$vectorSearch` on `memory_vec`, filtered by person, status and scope |
+| Voyage AI | `voyage-3.5` embeddings, `rerank-2.5` |
+| Google Gemini | `gemini-3.5-flash-lite`: validate dates, caregiver answers, classify judge |
+| ElevenLabs Conversational AI | Voice in and out; `recall` tool |
+| LangSmith | Optional traces and recall evals |
+| Next.js | UI, login, and all API routes (the old Fastify user service is gone) |
 
 ## Run locally
 
@@ -91,27 +109,25 @@ node --env-file=.env scripts/setup-vectors.mjs   # vector index + missing embedd
 npm run dev
 ```
 
-Database setup is in [db/README.md](db/README.md). Root `.env.example` has the keys the db scripts need (`MONGODB_URI`, `MONGODB_DB`, `VOYAGE_API_KEY`, `AUTH_SECRET`, `GEMINI_API_KEY`). Use `client/.env` for the app (those plus ElevenLabs and optional LangSmith).
+Env vars (names only; values stay in `.env`): `MONGODB_URI`, `MONGODB_DB`, `VOYAGE_API_KEY`, `AUTH_SECRET`, `GEMINI_API_KEY`, plus `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` for voice, and optional `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`.
 
-Demo logins, after seed: `anna@keepsake.test` (family, admin), `ravi@keepsake.test` (caregiver), `margaret@keepsake.test` (person). Password: `keepsake`.
+Database setup and demo logins: [db/README.md](db/README.md). ElevenLabs agent setup and the write-path script: [docs/demo.md](docs/demo.md). LangSmith evals: `cd client && EVAL_DELAY_MS=40000 npx tsx --env-file=$PWD/.env scripts/eval-recall.mts` (the delay is for Voyage's free tier).
 
-### ElevenLabs (one time)
+In the ElevenLabs dashboard, give the agent a client tool named `recall` with a `query` string, overrides for the system prompt and first message, and an API key with `convai_write`. The prompt lives in `client/lib/prompt.ts`. There is no `remember` tool.
 
-The prompt and first message live in `client/lib/prompt.ts` and are sent as session overrides. In the ElevenLabs dashboard:
+## Docs
 
-1. API key with the ElevenLabs Agents permission set to write (`convai_write`), in `ELEVENLABS_API_KEY`. Without it the app can only connect to a public agent.
-2. Agent → Security → Overrides: enable System prompt and First message.
-3. Agent → Tools → Add tool → Client, with Wait for response on and a 10s timeout:
-   - `recall`: look up what Keepsake knows. Parameter `query` (string, required). The browser posts `POST /api/recall`.
-
-`recall` is the only tool. The person does not add memories by voice in the MVP (A16). `{{name}}` and `{{today}}` are filled from the signed-in user at session start.
-
-### LangSmith (optional)
-
-Set `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT` (default `keepsake`) in `client/.env`.
-
-- Traces (`client/lib/tracing.ts`). Every `POST /api/recall` writes a `recall` run (question, vector and rerank scores, cutoff). The spoken or written answer is traced from `POST /api/turns/:id/answer` once the text has settled. Tagged `voice` or `caregiver`/`family`, plus `no-memories` or `degraded:*` when search is empty or Voyage fails. Traces send memory text to LangSmith; that is fine for the demo data.
-- Evals (`client/scripts/eval-recall.mts`) run `tests/scenarios/read_path.json` and record a LangSmith experiment. On Voyage's free tier, use a delay: `EVAL_DELAY_MS=40000 npx tsx --env-file=$PWD/.env scripts/eval-recall.mts`.
+- [docs/architecture.md](docs/architecture.md) — integrations and the read/write flow (embedding and rerank)
+- [docs/demo.md](docs/demo.md) — track brief, 3-minute talk notes, and the write-path demo script
+- [docs/specs/SPEC-memory.md](docs/specs/SPEC-memory.md) — memory behaviour spec
+- [docs/specs/DECISIONS.md](docs/specs/DECISIONS.md) — decision log
+- [docs/specs/WORKSPLIT.md](docs/specs/WORKSPLIT.md) — original read/write work split
+- [docs/memory-service-plan.md](docs/memory-service-plan.md) — parked; memory logic shipped in the Next.js app
+- [docs/user-service-plan.md](docs/user-service-plan.md) — superseded; the Fastify service was folded into Next.js
+- [db/README.md](db/README.md) — schema, indexes, seed, migrations
+- [tests/README.md](tests/README.md) — search and supersede scenarios
+- [DESIGN.md](DESIGN.md) — UI design
+- [client/AGENTS.md](client/AGENTS.md) — Next.js-generated agent rules
 
 ## Next steps
 
@@ -131,3 +147,11 @@ Deferred from the MVP. One list; do not add more copies in other docs.
 - Optional `kind` on memories (routine, event, fact, preference), if the prompt or UI needs it.
 - Related / unrelated labels on classify candidates. The system only decides supersede true or false (A14).
 - Remove unused `@langchain/core` and `@langchain/mongodb` from `client/package.json`.
+
+## Team
+
+Names from the git history of this repo:
+
+- Emily Lin
+- Benjamin
+- Christopher Lam

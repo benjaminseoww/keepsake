@@ -1,4 +1,22 @@
-# Keepsake write-path demo
+# Keepsake demo
+
+## Track brief
+
+Built for the **Memory You Can Govern** track at [Agents in Context Toronto](https://cerebralvalley.ai/e/mongodb-toronto-hackathon) (MongoDB, 14 Nov 2026).
+
+The official public event page does not publish the named track briefs. This is the track text as the team copied it from the event [details](https://cerebralvalley.ai/e/mongodb-toronto-hackathon/details) page:
+
+> What an agent remembers is data someone has to answer for. Build an agent using MongoDB Atlas and Vector Search to persist and retrieve memory, so that memory changes what it does on the next run, with rules for who can read each memory, how long it lives, and how it gets corrected or forgotten.
+>
+> How do you keep one client's or team's memory from leaking into another's?
+> How does the agent fix or drop a memory that turns out wrong or expired?
+> How do you prove a memory changed the agent's behavior and didn't just fill the prompt?
+
+Keepsake answers that with a voice agent whose memory family can verify, correct, scope and supersede. Every vector search is pre-filtered by person and by the caller's role. Recall uses verified memories only, so a correction changes the next answer. The brief also asked about expiry; the MVP does not expire memories.
+
+For a 3-minute talk, start with this brief, then Flow 1 and Flow 2 in the [root README](../README.md), then a live write from the script below.
+
+## Write-path script
 
 The steps below were first proven in the QA run on 14 Nov 2026. They still apply on `main`. The notes at the end reflect the current code: time-stripped cutoff 0.55, year check on relative dates, and the Gemini classify judge (on by default).
 
