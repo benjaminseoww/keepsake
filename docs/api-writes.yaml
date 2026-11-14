@@ -22,12 +22,15 @@ info:
 
     Every inserted memory has `schema_version: 1`. Status is
     `unverified` | `verified` | `superseded` | `retracted`. Scope is
-    `private` | `family` | `caregiver`. Review candidates are
-    `{memory_id, supersedes: bool, rerank_score}`. Do not write
-    `expires_at`. Classify is binary (A14); candidates are `verified`
-    memories only (R19), excluding `private` scope unless the writer is
-    the person (R24). The method is still Q1, so keep a rerank-2.5
-    cutoff behind one function.
+    `family` | `caregiver` (A17; there is no `private` scope). The
+    stored author is `source: {user_id, name, role}` (A15). Review
+    candidates are `{memory_id, supersedes: bool, rerank_score}`. Do
+    not write `expires_at`. Classify is binary (A14); candidates are
+    `verified` memories only (R19). The method is still Q1, so keep a
+    rerank-2.5 cutoff behind one function.
+
+    Readable scopes (A17): Margaret (recall only) and family both read
+    `family` and `caregiver`; a caregiver reads `caregiver`.
 
     Examples use the seed household: Margaret (person), Anna (family,
     admin), David (family), Ravi (caregiver). Seed ObjectIds in examples
@@ -66,11 +69,10 @@ paths:
         the session and `households.members`, never from the request
         body (R1, A15). The response shows it as `from: {name, role}`.
 
-        The system runs classify over `verified` memories only (R19),
-        excluding `private` scope unless the writer is the person
-        (R24). `addMemory` uses the scope the writer chose (R20);
-        caregiver writes are always `caregiver`. Family writers may
-        set `family` or `caregiver`. `private` is not allowed here.
+        The system runs classify over `verified` memories only (R19).
+        `addMemory` uses the scope the writer chose (R20); caregiver
+        writes are always `caregiver`. Family writers may set `family`
+        or `caregiver`.
 
         Caregiver: the memory is saved `unverified` with `review`
         pending, `flagged: true`, and an audit `write`. A family
@@ -227,10 +229,9 @@ paths:
         (text, author name, date) and `message` is
         "This will supersede <old text>".
 
-        The queue shows every candidate the family may read (family
-        and caregiver scopes), including ones the original writer
-        could not see. Private-scope candidates are omitted, so
-        Margaret's private memories never surface here (R24).
+        The queue shows every candidate, including ones the original
+        writer could not see. Family can read both remaining scopes
+        (A17).
       responses:
         "200":
           description: Pending review queue.
@@ -655,7 +656,7 @@ components:
 
     Scope:
       type: string
-      enum: [private, family, caregiver]
+      enum: [family, caregiver]
 
     MemoryStatus:
       type: string
@@ -746,7 +747,7 @@ components:
           description: |
             The scope the writer chose (R20). Family writers may set
             `family` or `caregiver`. Ignored for caregivers (always
-            `caregiver`). `private` is not allowed here.
+            `caregiver`).
         confirm:
           type: boolean
           default: false
@@ -766,10 +767,23 @@ components:
       then:
         required: [confirm_supersedes]
 
+    Source:
+      type: object
+      additionalProperties: false
+      description: Stored author on the memory doc (A15). Resolved from the session and households.members; never taken from the request body.
+      required: [user_id, name, role]
+      properties:
+        user_id:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+
     From:
       type: object
       additionalProperties: false
-      description: Display form of the author (A15). Built from source, never from the request body.
+      description: "Display form of the author (A15), shown on addMemory responses and review cards as from: {name, role}. Built from source.name and source.role, never from the request body."
       required: [name, role]
       properties:
         name:

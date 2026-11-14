@@ -8,7 +8,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [A15] The author is stored as `source: {user_id, name, role}`, resolved from the session and `households.members`, never from the request body.
 - [D4] Memories have no `kind` field.
 - [A10] No expiry: do not write `expires_at`, and do not use a TTL index. Time-bound facts keep their dates in the text (for example "Anna is visiting Nov 12-16"). Optional `event_start` / `event_end` are allowed, but recall never filters on them.
-- Status is one of `unverified`, `verified`, `superseded`, `retracted`. Scope is one of `private`, `family`, `caregiver`.
+- Status is one of `unverified`, `verified`, `superseded`, `retracted`. Scope is one of `family`, `caregiver`. There is no `private` scope ([A17]).
 - [R11] `review.state: pending` is the review queue's source of truth; `flagged` is a UI hint only.
 - [A14] Each review candidate is `{memory_id, supersedes: bool, rerank_score}`. `proposed_supersedes` is the top-ranked candidate with `supersedes: true`, or null.
 - [R6] `turns` is `{schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], answer}`, indexed `{person_id: 1, at: -1}`. Time-series turns stay in NEXT_STEPS.
@@ -19,7 +19,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 ## Roles and permissions
 
 - [R1] The JWT is trusted for `user_id` only. `person_id`, `role` and `admin` are resolved from `households.members` on every request.
-- Readable scopes: the person reads `private`, `family` and `caregiver`; family reads `family` and `caregiver`; a caregiver reads `caregiver`.
+- [A17] Readable scopes: Margaret (recall only) and family both read `family` and `caregiver`; a caregiver reads `caregiver`. Nothing is private only to Margaret.
 - [R22] A writer's response never includes `proposed_supersedes`, `message`, or candidates for a memory outside that writer's readable scopes.
 - [A12] Any family member (role `family`, including the admin) can verify, deny, confirm a supersede, and correct. Caregivers cannot; their writes stay unverified until a family member reviews them.
 - [A13] The admin's only extra power is managing household members (`POST /users` in `backend/`, already `requireFamilyAdmin`).
@@ -51,8 +51,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 ## Classification
 
 - [A14] Classification is binary: the new memory either supersedes a candidate or it does not. `classify` returns `{proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}]}`.
-- [R19] Classify candidates are `verified` memories only.
-- [R24] Classify excludes `private`-scope memories unless the writer is the person, so Margaret's private memories never surface in a family or caregiver review.
+- [R19] Classify candidates are `verified` memories only (family and caregiver scopes).
 - [A1] The method follows MongoDB and Voyage best practices. Until Q1 is closed, keep a rerank-2.5 cutoff behind one `classify` function so the method can be swapped.
 
 ## Voice and agent
@@ -97,3 +96,5 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - The brief and early demo flow said family can "expire" memories, the system labels "supersedes/related/unrelated", and only the family admin confirms. Replaced by [A10], [A14] and [A12].
 - [R4] Memories Margaret created herself had scope `family`, were unverified and flagged, never proposed a supersede, and private wishes stayed private and verified. Replaced by [A16] (Margaret does not add memories in the MVP).
 - [A8] The voice contract included a `remember {text, private?}` tool. Replaced by [A16]; `remember` moves to `docs/NEXT_STEPS.md`.
+- [R24] Classify excluded `private`-scope memories unless the writer was the person. Replaced by [A17] (there is no `private` scope).
+- Readable scopes used to include `private` for the person. Replaced by [A17].

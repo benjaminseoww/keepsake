@@ -15,12 +15,12 @@ Roles come from `households.members` on every request. The JWT is trusted for us
 | Manage household members | no | no | no | **yes** |
 
 - The system decides, for each existing candidate memory, whether the new memory supersedes it (yes or no; A14). People only confirm or deny (D1, D2).
-- Readable scopes: person reads private, family and caregiver; family reads family and caregiver; caregiver reads caregiver.
+- Readable scopes (A17): Margaret (recall only) and family both read family and caregiver; a caregiver reads caregiver. There is no private scope.
 
 ## Memory document
 main's schema plus `review`:
-`{schema_version:1, person_id, text, scope, status, source:{role,user_id}, supersedes, flagged, embedding[1024], created_at, review?:{state: pending|approved|denied, proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}], decided_by, decided_at}}`
-- status: unverified | verified | superseded | retracted. Recall reads verified and unverified.
+`{schema_version:1, person_id, text, scope, status, source:{user_id, name, role}, supersedes, flagged, embedding[1024], created_at, review?:{state: pending|approved|denied, proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}], decided_by, decided_at}}`
+- status: unverified | verified | superseded | retracted. Scope: family | caregiver. Recall reads verified and unverified. There is no private scope (A17).
 - No `kind` field. No `expires_at`. Time-bound facts keep their dates in the text ("Anna is visiting Nov 12-16"). Optional `event_start`/`event_end` are allowed, but recall never filters on them.
 - Embeddings: voyage-3.5, 1024 dims, cosine; input_type `document` on write and `query` on recall.
 
@@ -37,13 +37,13 @@ main's schema plus `review`:
 - `GET /api/turns` (newest first) and `GET /api/turns/:id`. The trace screen shows the question, the answer, and for each memory who added it, when, its status and its scores.
 
 ## Write and review (demo steps 3-4)
-classify(text, person_id): embed as a document, then `$vectorSearch` candidates across all scopes for this person, then rerank-2.5, then decide for each candidate whether the new memory supersedes it (true/false). Return `{proposed_supersedes, candidates:[{memory_id, supersedes, rerank_score}]}`. Candidates are `verified` memories only (R19), excluding `private` scope unless the writer is the person (R24). proposed_supersedes is the top-ranked candidate with supersedes true, or null. It sits behind one function so the method can change (Q1 research pending; start with a rerank cutoff).
+classify(text, person_id): embed as a document, then `$vectorSearch` candidates across all scopes for this person, then rerank-2.5, then decide for each candidate whether the new memory supersedes it (true/false). Return `{proposed_supersedes, candidates:[{memory_id, supersedes, rerank_score}]}`. Candidates are `verified` memories only (R19). proposed_supersedes is the top-ranked candidate with supersedes true, or null. It sits behind one function so the method can change (Q1 research pending; start with a rerank cutoff).
 
 - **Caregiver adds:** the memory is saved unverified with review pending, proposed_supersedes and candidates set, and flagged true. The caregiver's response lists only candidates in the caregiver's readable scopes.
 - **One add endpoint (A15):** family and caregiver adds both go through `addMemory`. The author (`source: {user_id, name, role}`) comes from the session and `households.members`, never from the request body (R1). The response and the review card show who added it ("from: Ravi (caregiver)").
 - **Margaret does not add memories in the MVP (A16).** No remember tool. Moved to NEXT_STEPS.
 - **Family adds or corrects:** if classify proposes a supersede, the response is `{needs_confirmation: true, old:{memory_id, text, author_name, created_at}}`. The UI shows "Are you sure? This will supersede <old>". Resending with `confirm: true` and `confirm_supersedes: <old memory_id>` saves it verified (the server rejects with 409 if classify no longer proposes that id or the old memory is no longer verified; R21), marks the old memory superseded and writes audit approve, all in one transaction. With no supersede, the memory is saved verified.
-- **Review queue (family only):** all pending reviews, each with the old memory looked up (text, author, date) so the card can say "This will supersede <old>". Every family- and caregiver-scoped candidate is visible here; private ones never are (R24).
+- **Review queue (family only):** all pending reviews, each with the old memory looked up (text, author, date) so the card can say "This will supersede <old>". Every candidate is visible here (family can read both remaining scopes).
 - **Confirm (family):** in one transaction, the new memory becomes verified with review approved and supersedes set; the old one becomes superseded; audit approve. With no proposal, it's a plain verify.
 - **Deny (family):** the new memory becomes retracted with review denied; the old one is untouched; audit deny.
 - Scope: `correct` inherits the old memory's scope; `addMemory` uses the scope the writer chose (R20).
