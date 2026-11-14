@@ -25,7 +25,7 @@ anna = {"role": "family", "user_id": "anna"}
 ravi = {"role": "caregiver", "user_id": "ravi"}
 marg = {"role": "person", "user_id": "margaret"}
 
-for name in ["memories", "people", "topic_guidance", "audit_log", "replay_runs"]:
+for name in ["memories", "people", "audit_log", "replay_runs"]:
     db[name].delete_many({})
 
 db.people.insert_many([
@@ -76,15 +76,5 @@ docs = [
     for m, v in zip(memories, vectors)
 ]
 db.memories.insert_many(docs)
-
-husband = db.memories.find_one({"demo_tag": "husband"})
-db.topic_guidance.insert_one({
-    "person_id": "margaret",
-    "topic": "husband",
-    "guidance": "Don't correct her bluntly or say he died. Acknowledge the feeling, then offer the Lisbon photo album or ask about their trip.",
-    "related_memory_ids": [husband["_id"]],
-    "set_by": "anna",
-    "updated_at": now,
-})
 
 print(f"Seeded {len(docs)} memories with {EMBED_MODEL} embeddings ({len(vectors[0])} dims).")

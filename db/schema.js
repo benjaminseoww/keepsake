@@ -3,7 +3,7 @@
 // The vector index is created separately in Atlas (see vector_index.json).
 
 const drop = (name) => { if (db.getCollectionNames().includes(name)) db[name].drop(); };
-["memories", "people", "topic_guidance", "audit_log", "replay_runs"].forEach(drop);
+["memories", "people", "audit_log", "replay_runs"].forEach(drop);
 
 db.createCollection("memories", {
   validator: { $jsonSchema: {
@@ -38,9 +38,6 @@ db.memories.createIndex({ person_id: 1, status: 1, flagged: 1 });
 
 db.createCollection("people");
 db.people.createIndex({ user_id: 1 }, { unique: true });
-
-db.createCollection("topic_guidance");
-db.topic_guidance.createIndex({ person_id: 1, topic: 1 }, { unique: true });
 
 // audit_log has no text field, so forgotten content never lands here.
 db.createCollection("audit_log", {
