@@ -1,0 +1,53 @@
+{
+  "_comment": "Write path: someone adds a memory. The SYSTEM finds related memories (voyage-3.5 -> $vectorSearch over the household's verified memories, all scopes -> rerank-2.5) and classifies each candidate as supersedes | related | unrelated. Only 'supersedes' creates a pending override. The admin does not classify; they only grant or refuse permission to override. expect.supersedes: keys the system must propose to replace (empty list = no override proposed). expect.not_supersedes: keys that may show up as related but must NOT be proposed.",
+  "cases": [
+    { "id": "W01_schedule_change", "as": "ravi",
+      "text": "Physio is every second Tuesday now, not every week",
+      "expect": { "supersedes": ["physio_weekly"] } },
+
+    { "id": "W02_related_not_replacing", "as": "ravi",
+      "text": "The physio therapist's name is Priya",
+      "expect": { "supersedes": [], "not_supersedes": ["physio_weekly"] } },
+
+    { "id": "W03_one_off_vs_routine", "as": "ravi",
+      "text": "Ravi is coming at 11 tomorrow instead of 10, just this once",
+      "expect": { "supersedes": [], "not_supersedes": ["ravi_weekdays"] },
+      "note": "A one-off exception doesn't replace the routine." },
+
+    { "id": "W04_preference_change", "as": "ravi",
+      "text": "Margaret takes her tea with honey now instead of sugar-free",
+      "expect": { "supersedes": ["tea"] } },
+
+    { "id": "W05_adjacent_preference", "as": "ravi",
+      "text": "Margaret enjoys jazz on the radio in the evening",
+      "expect": { "supersedes": [], "not_supersedes": ["radio"] },
+      "note": "Different time of day, adds to the afternoon preference." },
+
+    { "id": "W06_location_change", "as": "ravi",
+      "text": "The spare key is now kept in the mailbox",
+      "expect": { "supersedes": ["spare_key"] } },
+
+    { "id": "W07_new_unrelated", "as": "ravi",
+      "text": "Margaret's favourite biscuits are ginger snaps",
+      "expect": { "supersedes": [] } },
+
+    { "id": "W08_word_overlap_no_conflict", "as": "ravi",
+      "text": "Anna's dinner tonight will be lasagna",
+      "expect": { "supersedes": [], "not_supersedes": ["anna_dinner"] },
+      "note": "Adds detail to the same event, doesn't replace it." },
+
+    { "id": "W09_time_change_same_event", "as": "anna",
+      "text": "Anna is bringing dinner at 7pm today, not 6",
+      "expect": { "supersedes": ["anna_dinner"] } },
+
+    { "id": "W10_contradicts_verified_fact", "as": "margaret",
+      "text": "My husband George is picking me up later",
+      "expect": { "supersedes": [], "status": "unverified", "flagged": true },
+      "note": "Something the person says never proposes overriding a family-verified fact. It's saved unverified and flagged." },
+
+    { "id": "W11_caregiver_cannot_target_hidden", "as": "ravi",
+      "text": "Margaret is moving to assisted living next month",
+      "expect": { "supersedes": [], "candidates_visible_to_writer": { "exclude": ["assisted_living"] } },
+      "note": "The writer's own response must not reveal family-only memories, even as conflict candidates. The admin sees the full picture during review." }
+  ]
+}

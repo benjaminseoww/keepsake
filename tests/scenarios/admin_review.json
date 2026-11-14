@@ -1,0 +1,28 @@
+{
+  "_comment": "Admin review: the system has proposed an override. Admin only confirms or denies permission. Checks the state of both memories afterwards and that the queue shows the old memory.",
+  "cases": [
+    { "id": "A01_confirm_override",
+      "proposal": { "by": "ravi", "text": "Physio is every second Tuesday now, not every week", "supersedes": "physio_weekly" },
+      "queue_shows": { "old_text": "Physio visit is every Tuesday at 2pm",
+                       "message_contains": "will supersede" },
+      "admin": { "as": "anna", "decision": "confirm" },
+      "expect": { "new_status": "verified", "new_supersedes": "physio_weekly",
+                  "old_status": "superseded", "audit_action": "correct" } },
+
+    { "id": "A02_deny_override",
+      "proposal": { "by": "ravi", "text": "The spare key is now kept in the mailbox", "supersedes": "spare_key" },
+      "admin": { "as": "anna", "decision": "deny" },
+      "expect": { "new_status": "retracted", "old_status": "verified" } },
+
+    { "id": "A03_non_admin_cannot_confirm",
+      "proposal": { "by": "ravi", "text": "Margaret takes her tea with honey now instead of sugar-free", "supersedes": "tea" },
+      "admin": { "as": "ravi", "decision": "confirm" },
+      "expect": { "error": "forbidden", "old_status": "verified" } },
+
+    { "id": "A04_no_override_still_needs_verify",
+      "proposal": { "by": "ravi", "text": "Margaret's favourite biscuits are ginger snaps", "supersedes": null },
+      "admin": { "as": "anna", "decision": "confirm" },
+      "expect": { "new_status": "verified" },
+      "note": "No conflict found: admin just verifies the new memory." }
+  ]
+}
