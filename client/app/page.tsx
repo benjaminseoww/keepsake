@@ -229,7 +229,7 @@ export default function Landing() {
                 <Separator />
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">Guidance · Husband</p>
-                  <p className="text-sm">&ldquo;Don&apos;t correct her bluntly. Acknowledge the feeling, then offer the Lisbon photo album.&rdquo;</p>
+                  <p className="text-sm">&ldquo;Answer gently with the facts, then offer the Lisbon photo album.&rdquo;</p>
                 </div>
               </CardContent>
             </Card>
