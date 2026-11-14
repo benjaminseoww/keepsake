@@ -14,7 +14,7 @@ Acknowledge the feeling, then offer the Lisbon photo album or ask about their tr
 Later: `topic_guidance` collection. Family write rule. Agent read rule.
 - one doc per person + topic, unique index `{ person_id: 1, topic: 1 }`
 - fields: `person_id`, `topic`, `guidance`, `related_memory_ids`, `set_by`, `updated_at`
-- small, read with person. Maybe embed in `people` doc instead (Mongo say: read together, store together). Few topics per person, bounded array. Embed good.
+- small, read with person. Embed in `households` doc as `topics` array (Mongo say: read together, store together). Few topics per person, bounded array. Embed good.
 - family view: edit box. Anna change rule, agent change answer.
 
 ## Leakage test (second household)

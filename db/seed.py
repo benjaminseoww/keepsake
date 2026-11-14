@@ -25,14 +25,17 @@ anna = {"role": "family", "user_id": "anna"}
 ravi = {"role": "caregiver", "user_id": "ravi"}
 marg = {"role": "person", "user_id": "margaret"}
 
-for name in ["memories", "people", "audit_log", "replay_runs"]:
+for name in ["memories", "households", "audit_log", "replay_runs"]:
     db[name].delete_many({})
 
-db.people.insert_many([
-    {"user_id": "margaret", "name": "Margaret", "role": "person", "person_id": "margaret"},
-    {"user_id": "anna", "name": "Anna", "role": "family", "person_id": "margaret", "relation": "daughter", "admin": True},
-    {"user_id": "ravi", "name": "Ravi", "role": "caregiver", "person_id": "margaret", "shift": "weekday mornings"},
-])
+db.households.insert_one({
+    "person_id": "margaret",
+    "members": [
+        {"user_id": "margaret", "name": "Margaret", "role": "person"},
+        {"user_id": "anna", "name": "Anna", "role": "family", "relation": "daughter", "admin": True},
+        {"user_id": "ravi", "name": "Ravi", "role": "caregiver", "shift": "weekday mornings"},
+    ],
+})
 
 memories = [
     {"text": "Ravi visits on weekday mornings at 10", "scope": "caregiver", "status": "verified", "source": anna},

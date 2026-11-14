@@ -7,6 +7,15 @@ const SCOPES = {
   caregiver: ["caregiver"]
 };
 
+// Who is calling: user_id -> person_id + role. Uses the members.user_id index.
+function whoami(userId) {
+  const h = db.households.findOne(
+    { "members.user_id": userId },
+    { person_id: 1, "members.$": 1 }
+  );
+  return h ? { person_id: h.person_id, ...h.members[0] } : null;
+}
+
 // Role-scoped retrieval. qv is the query embedding (1024 dims).
 function retrieve(personId, role, qv, limit = 8) {
   return db.memories.aggregate([
