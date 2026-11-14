@@ -28,7 +28,7 @@ export const STRIPPED_CUTOFF = process.env.STRIPPED_CUTOFF === "off" ? null : Nu
 // scoring at least JUDGE_MIN that the rules above did not already mark, and it can only add a supersede, never
 // remove one. On by default; CLASSIFY_GEMINI=0 turns it off. Costs one Gemini call when a candidate qualifies.
 export const USE_GEMINI_JUDGE = process.env.CLASSIFY_GEMINI !== "0";
-export const JUDGE_MIN = Number(process.env.JUDGE_MIN ?? 0.5);
+export const JUDGE_MIN = Number(process.env.JUDGE_MIN ?? 0.4);
 
 export const NUM_CANDIDATES = 100;
 export const VECTOR_LIMIT = 20;
@@ -133,7 +133,7 @@ export async function classify(text: string, person_id: string, _writer: Writer,
 async function geminiJudge(text: string, candidates: { text: string }[]): Promise<boolean[]> {
   const list = candidates.map((c, i) => `${i}. ${c.text}`).join("\n");
   const out = await generateJson<{ supersedes: boolean[] }>(
-    `A family member wrote a new note about the person they care for. For each existing note, answer true if the new note replaces it or contradicts it, so the existing note would no longer be true. Examples that are true: the same event at a new time or place, a changed routine, or a denial such as "has no grandchildren" against "has two grandchildren". Different events on the same day, related facts that can both be true, and additions are false.\n\nNew note: """${text}"""\n\nExisting notes:\n${list}\n\nReturn one boolean per existing note, in order.`,
+    `A family member wrote a new note about the person they care for. For each existing note, answer true if the new note replaces it or contradicts it, so the existing note would no longer be true. Examples that are true: the same event at a new time or place, a changed routine, or a denial such as "has no grandchildren" against "has two grandchildren". Count contradictions that follow by plain logic too: "has no kids" contradicts "has two grandchildren" and any note that names their son or daughter. Different events on the same day, related facts that can both be true, and additions are false.\n\nNew note: """${text}"""\n\nExisting notes:\n${list}\n\nReturn one boolean per existing note, in order.`,
     { type: "OBJECT", properties: { supersedes: { type: "ARRAY", items: { type: "BOOLEAN" } } }, required: ["supersedes"] },
   );
   return out.supersedes;
