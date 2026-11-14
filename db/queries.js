@@ -22,7 +22,7 @@ function retrieve(personId, role, qv, limit = 8) {
           status: { $in: ["verified", "unverified"] }
         }
     }},
-    { $project: { text: 1, kind: 1, scope: 1, status: 1, score: { $meta: "vectorSearchScore" } } }
+    { $project: { text: 1, scope: 1, status: 1, score: { $meta: "vectorSearchScore" } } }
   ]).toArray();
 }
 

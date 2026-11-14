@@ -8,11 +8,10 @@ const drop = (name) => { if (db.getCollectionNames().includes(name)) db[name].dr
 db.createCollection("memories", {
   validator: { $jsonSchema: {
     bsonType: "object",
-    required: ["person_id", "text", "kind", "scope", "status", "source", "created_at"],
+    required: ["person_id", "text", "scope", "status", "source", "created_at"],
     properties: {
       person_id:  { bsonType: "string" },
       text:       { bsonType: "string" },
-      kind:       { enum: ["routine", "event", "fact", "preference"] },
       scope:      { enum: ["private", "family", "caregiver"] },
       status:     { enum: ["unverified", "verified", "superseded", "retracted"] },
       source: {
@@ -26,7 +25,7 @@ db.createCollection("memories", {
       supersedes: { bsonType: ["objectId", "null"] },
       flagged:    { bsonType: "bool" },
       expires_at: { bsonType: ["date", "null"] },
-      embedding:  { bsonType: "array" },
+      embedding:  { bsonType: "array" },      // voyage-3.5, 1024 dims
       created_at: { bsonType: "date" }
     }
   }},
