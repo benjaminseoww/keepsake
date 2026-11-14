@@ -37,7 +37,7 @@ const mem = (_id: ObjectId, text: string, scope: string, author: string, extra =
 const byId = (id: string | ObjectId) => f.store.memories.find((m) => (m._id as ObjectId).equals(new ObjectId(String(id))))!;
 const hit = (id: ObjectId, supersedes: boolean, score = 0.9): CandidateHit => {
   const d = byId(id);
-  return { memory_id: id, supersedes, rerank_score: score, scope: d.scope as string, text: d.text as string,
+  return { memory_id: id, supersedes, rerank_score: score, stripped_score: null, scope: d.scope as string, text: d.text as string,
     author_name: (d.source as { name: string }).name, created_at: d.created_at as Date, doc: d };
 };
 function cls(c: CandidateHit[]): Classified {

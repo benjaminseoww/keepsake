@@ -148,10 +148,10 @@ type Classified = {
 // Finds verified memories this one might replace (R19, R24) and decides supersedes per candidate (A14),
 // via classify.ts. The embedding is reused for the insert. No embedding means no conflict check, so a
 // Voyage failure is a 503 and nothing is saved (R7, EDGE-CASES #29).
-export async function classify(text: string, person_id: string, s?: Session): Promise<Classified> {
+export async function classify(text: string, person_id: string, s?: Session, event_start?: Date | null): Promise<Classified> {
   const names = await householdNames(person_id);
   try {
-    const c = await classifyCandidates(text, person_id, s ?? { user_id: "", name: "", role: "family" });
+    const c = await classifyCandidates(text, person_id, s ?? { user_id: "", name: "", role: "family" }, { event_start });
     const candidates = c.candidates.map((x) => ({ doc: x.doc, supersedes: x.supersedes, rerank_score: x.rerank_score }));
     return { names, embedding: c.embedding, proposed: candidates.find((x) => x.supersedes)?.doc ?? null, candidates };
   } catch (e) {
@@ -246,7 +246,7 @@ async function addFacts(s: Session, scope: Scope, facts: Fact[], input: MemoryIn
   const asks: (NeedsConfirmation | null)[] = [];
   let mismatch = false;
   for (let i = 0; i < facts.length; i++) {
-    const c = await classify(facts[i].text, s.person_id, s);
+    const c = await classify(facts[i].text, s.person_id, s, facts[i].event_start);
     let kind: Kind = isFamily(s) ? (c.proposed ? "supersede" : "verified") : "pending";
     let ask: NeedsConfirmation | null = null;
     if (kind === "supersede") {

@@ -3,6 +3,7 @@ import type { Db, Document, ObjectId } from "mongodb";
 import { getDb } from "./db";
 import { embed, rerank, withRetry, type RetryOpts } from "./voyage";
 import { generateJson } from "./gemini";
+import { stripTimes, timesDiffer } from "./strip-times";
 
 // classify (A1, A14, R19, R24): does a new memory supersede an existing one?
 // Binary per candidate. Kept behind this one function so the method can change (Q1).
@@ -14,6 +15,12 @@ import { generateJson } from "./gemini";
 // "Anna calls every evening around 7". So no fixed cutoff separates "replaces" from "same topic",
 // and 0.8 proposes nothing on the demo data. The Gemini judge (CLASSIFY_GEMINI=1) is the likely fix.
 export const SUPERSEDE_CUTOFF = Number(process.env.SUPERSEDE_CUTOFF ?? 0.8);
+// Time-stripped check (Daniel's idea): rerank again with times and dates replaced by <TIME>/<DATE>
+// (lib/strip-times.ts). A stripped score at or above STRIPPED_CUTOFF, plus a time, date or event_start
+// that differs between the originals, means "supersedes". The plain cutoff above still applies too.
+// Placeholder until tuned on the demo pairs with scripts/tune-classify.mts. Off with STRIPPED_CUTOFF=off.
+// Costs one more rerank call, only when the new note has a time or date.
+export const STRIPPED_CUTOFF = process.env.STRIPPED_CUTOFF === "off" ? null : Number(process.env.STRIPPED_CUTOFF ?? 0.85);
 // Optional Gemini judge on top of the reranked candidates (A18 Q1). Off until tested.
 export const USE_GEMINI_JUDGE = process.env.CLASSIFY_GEMINI === "1";
 
@@ -28,6 +35,8 @@ export type CandidateHit = {
   memory_id: ObjectId;
   supersedes: boolean;
   rerank_score: number | null;
+  // Score of the time-stripped texts, when that check ran.
+  stripped_score: number | null;
   // Looked up so the write service can filter by readable scope (R22) and show the card.
   scope: string;
   text: string;
@@ -52,6 +61,9 @@ export type ClassifyDeps = {
   rerank?: typeof rerank;
   retry?: RetryOpts;
   judge?: (text: string, candidates: { text: string }[]) => Promise<boolean[]>;
+  // The new fact's resolved date, compared with each candidate's event_start.
+  event_start?: Date | null;
+  stripped_cutoff?: number | null;
 };
 
 type Hit = Document & { _id: ObjectId; text: string; scope: string; source?: { name?: string }; created_at?: Date };
@@ -74,6 +86,23 @@ export async function classify(text: string, person_id: string, _writer: Writer,
   const top = ranked.map((r) => ({ hit: hits[r.index], score: r.relevance_score }));
 
   let verdicts = top.map((c) => c.score >= SUPERSEDE_CUTOFF);
+  const strippedScores: (number | null)[] = top.map(() => null);
+  const cutoff = deps.stripped_cutoff !== undefined ? deps.stripped_cutoff : STRIPPED_CUTOFF;
+  const mine = stripTimes(text);
+  if (cutoff !== null && mine.keys.length) {
+    const theirs = top.map((c) => stripTimes(c.hit.text));
+    try {
+      const r2 = await withRetry(() => (deps.rerank ?? rerank)(mine.text, theirs.map((t) => t.text), top.length, 5000), "rerank-stripped", deps.retry);
+      for (const r of r2) {
+        strippedScores[r.index] = r.relevance_score;
+        const old = top[r.index].hit as Hit & { event_start?: Date };
+        if (r.relevance_score >= cutoff && timesDiffer(mine, theirs[r.index], deps.event_start, old.event_start)) verdicts[r.index] = true;
+      }
+    } catch (e) {
+      // The plain cutoff already ran, so a failure here only loses the extra check.
+      console.error("classify: stripped rerank failed, using the plain cutoff", (e as Error).name);
+    }
+  }
   const judge = deps.judge ?? (USE_GEMINI_JUDGE ? geminiJudge : null);
   if (judge) {
     try {
@@ -85,7 +114,7 @@ export async function classify(text: string, person_id: string, _writer: Writer,
   }
 
   const candidates: CandidateHit[] = top.map((c, i) => ({
-    memory_id: c.hit._id, supersedes: verdicts[i], rerank_score: c.score, scope: c.hit.scope,
+    memory_id: c.hit._id, supersedes: verdicts[i], rerank_score: c.score, stripped_score: strippedScores[i], scope: c.hit.scope,
     text: c.hit.text, author_name: c.hit.source?.name ?? null, created_at: c.hit.created_at ?? null, doc: c.hit,
   }));
   // Candidates are in rerank order, so the first true one is the top-ranked supersede (A14).
