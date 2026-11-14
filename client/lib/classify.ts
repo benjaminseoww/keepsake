@@ -1,7 +1,7 @@
 import "server-only";
 import type { Db, Document, ObjectId } from "mongodb";
 import { getDb } from "./db";
-import { embed, rerank } from "./voyage";
+import { embed, rerank, withRetry, type RetryOpts } from "./voyage";
 import { generateJson } from "./gemini";
 
 // classify (A1, A14, R19, R24): does a new memory supersede an existing one?
@@ -50,15 +50,16 @@ export type ClassifyDeps = {
   db?: Db;
   embed?: typeof embed;
   rerank?: typeof rerank;
+  retry?: RetryOpts;
   judge?: (text: string, candidates: { text: string }[]) => Promise<boolean[]>;
 };
 
 type Hit = Document & { _id: ObjectId; text: string; scope: string; source?: { name?: string }; created_at?: Date };
 
-// Voyage errors propagate: the caller returns 503 and saves nothing (EDGE-CASES #29).
+// Voyage calls retry briefly (withRetry); after that the error propagates, and the caller returns 503 and saves nothing (EDGE-CASES #29).
 export async function classify(text: string, person_id: string, _writer: Writer, deps: ClassifyDeps = {}): Promise<Classified> {
   const db = deps.db ?? (await getDb());
-  const [vector] = await (deps.embed ?? embed)([text], "document", 5000);
+  const [vector] = await withRetry(() => (deps.embed ?? embed)([text], "document", 5000), "embed", deps.retry);
 
   const hits = (await db.collection("memories").aggregate([
     { $vectorSearch: {
@@ -69,7 +70,7 @@ export async function classify(text: string, person_id: string, _writer: Writer,
   ]).toArray()) as Hit[];
   if (!hits.length) return { proposed_supersedes: null, candidates: [], embedding: vector };
 
-  const ranked = await (deps.rerank ?? rerank)(text, hits.map((h) => h.text), MAX_CANDIDATES, 5000);
+  const ranked = await withRetry(() => (deps.rerank ?? rerank)(text, hits.map((h) => h.text), MAX_CANDIDATES, 5000), "rerank", deps.retry);
   const top = ranked.map((r) => ({ hit: hits[r.index], score: r.relevance_score }));
 
   let verdicts = top.map((c) => c.score >= SUPERSEDE_CUTOFF);

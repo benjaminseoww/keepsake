@@ -58,6 +58,7 @@ beforeEach(() => {
     ],
   });
   facts = [{ text: "placeholder" }];
+  w.clearValidateCache();
   classifyResult = () => cls([]);
   validateMock.mockClear(); classifyMock.mockClear(); embedMock.mockClear();
 });
@@ -329,6 +330,7 @@ describe("correctMemory", () => {
     facts = [{ text: "a" }, { text: "b" }];
     await expect(w.correctMemory(anna, physio.toString(), { text: "x" })).rejects.toMatchObject({ code: "bad_request" });
     facts = [{ text: "a" }];
+    w.clearValidateCache(); // same text "x" as above, different mocked split
     embedMock.mockRejectedValueOnce(new Error("down"));
     await expect(w.correctMemory(anna, physio.toString(), { text: "x", confirm: true, confirm_supersedes: physio.toString() })).rejects.toMatchObject({ code: "unavailable" });
     expect(byId(physio).status).toBe("verified");
@@ -344,5 +346,21 @@ describe("listReviews", () => {
     const reviews = await w.listReviews(david);
     expect(reviews[0]).toMatchObject({ id: _id.toString(), from: { name: "Ravi", role: "caregiver" }, message: "This will supersede Anna is bringing dinner on Saturday Nov 14 at 6pm" });
     await expect(w.listReviews(ravi)).rejects.toMatchObject({ code: "forbidden" });
+  });
+});
+
+describe("Voyage failure after validate", () => {
+  it("503 saves nothing; the user's retry reuses the validate result (no second Gemini call)", async () => {
+    validateMock.mockClear();
+    facts = [{ text: "Margaret likes ginger snaps" }];
+    classifyMock.mockImplementationOnce(async () => { throw new VoyageError("http", "Voyage embeddings 429: rate limit", 429); });
+    await expect(w.createMemory(anna, { text: "Margaret likes ginger snaps" })).rejects.toMatchObject({ code: "unavailable" });
+    expect(f.store.memories.length).toBe(3);
+    const r = await w.createMemory(anna, { text: "Margaret likes ginger snaps" });
+    expect(r).toMatchObject({ saved: true });
+    expect(validateMock).toHaveBeenCalledTimes(1);
+    // A different note still runs validate.
+    await w.createMemory(anna, { text: "Margaret likes tea" });
+    expect(validateMock).toHaveBeenCalledTimes(2);
   });
 });

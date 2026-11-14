@@ -5,7 +5,7 @@ import { getClient, getDb } from "./db";
 import type { ErrorCode } from "./http";
 import { SCHEMA_VERSION, actor, audit, type Scope } from "./memories";
 import { readableScopes } from "./recall";
-import { embed, VoyageError } from "./voyage";
+import { embed, withRetry, VoyageError } from "./voyage";
 import { classify as classifyCandidates } from "./classify";
 import { validate, revalidateFacts, ValidationError, type Fact } from "./validate";
 
@@ -83,6 +83,24 @@ function tokenMatches(s: Session, facts: Fact[], token: unknown): boolean {
   return want.length === got.length && timingSafeEqual(want, got);
 }
 
+// Validate results for 10 minutes, per writer, person, Toronto day and text. When Voyage fails after
+// validate (503), the user's retry reuses the split instead of spending another Gemini call.
+// Per server process; cleared on restart.
+const VALIDATE_TTL_MS = 10 * 60_000;
+const validated = new Map<string, { at: number; facts: Fact[] }>();
+export const clearValidateCache = () => validated.clear(); // for tests
+async function validateOnce(s: Session, text: unknown): Promise<Fact[]> {
+  const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Toronto" });
+  const key = JSON.stringify([s.user_id, s.person_id, day, typeof text === "string" ? text.trim() : text]);
+  const hit = validated.get(key);
+  if (hit && Date.now() - hit.at < VALIDATE_TTL_MS) return hit.facts;
+  const { facts } = await validate(text, s);
+  for (const [k, v] of validated) if (Date.now() - v.at >= VALIDATE_TTL_MS) validated.delete(k);
+  if (validated.size >= 500) validated.delete(validated.keys().next().value!);
+  validated.set(key, { at: Date.now(), facts });
+  return facts;
+}
+
 // Validation layer (A17): every add runs validate (empty/length checks, then Gemini splits facts and
 // rewrites relative dates). The one exception is the confirm resend of a multi-fact note: it sends
 // back facts[] with the facts_token from our saved:false batch, and those facts are not re-split.
@@ -94,7 +112,7 @@ async function factsOf(s: Session, input: MemoryInput): Promise<Fact[]> {
       if (!tokenMatches(s, facts, input.facts_token)) throw new WriteError("bad_request", "facts don't match the ones we returned; add the note again");
       return facts;
     }
-    return (await validate(input.text, s)).facts;
+    return await validateOnce(s, input.text);
   } catch (e) {
     if (e instanceof ValidationError) throw new WriteError(e.code, e.message);
     throw e;
@@ -294,7 +312,7 @@ export async function correctMemory(s: Session, id: string, input: MemoryInput):
 
   let embedding: number[];
   try {
-    [embedding] = await embed([fact.text], "document");
+    [embedding] = await withRetry(() => embed([fact.text], "document", 5000), "embed");
   } catch {
     // Never store an empty embedding (R7, EDGE-CASES #29).
     throw new WriteError("unavailable", "The memory check is unavailable right now. Nothing was saved. Please try again.");
