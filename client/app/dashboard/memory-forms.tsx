@@ -33,6 +33,30 @@ function ConfirmSupersede({ state, action, pending, hidden, onCancel }: {
   );
 }
 
+// Multi-fact note with conflicts: one "This will supersede" line per conflicting fact, one confirm for all.
+function ConfirmBatch({ state, action, pending }: { state: Extract<FormState, { kind: "confirm_batch" }>; action: (f: FormData) => void; pending: boolean }) {
+  return (
+    <form action={action} className="space-y-3">
+      <p className="text-sm font-medium">Are you sure? This note has {state.facts.length} facts:</p>
+      <ul className="space-y-2 text-sm">
+        {state.facts.map((f, i) => {
+          const c = state.conflicts.find((x) => x.text === f.text);
+          return (
+            <li key={i}>
+              {f.text}
+              {c && <span className="block text-muted-foreground">This will supersede <span className="line-through">{c.old.text}</span> (from {c.old.author_name})</span>}
+            </li>
+          );
+        })}
+      </ul>
+      <input type="hidden" name="facts" value={JSON.stringify(state.facts)} />
+      <input type="hidden" name="confirm" value="true" />
+      {state.scope && <input type="hidden" name="scope" value={state.scope} />}
+      <Button size="sm" className="rounded-full" disabled={pending}>Yes, save all</Button>
+    </form>
+  );
+}
+
 function Status({ state }: { state: FormState }) {
   if (state.kind === "saved") return <p role="status" className="text-sm text-success">{state.message}</p>;
   if (state.kind === "error") return <p role="alert" className="text-sm text-destructive">{state.message}</p>;
@@ -51,6 +75,7 @@ function useConfirmable(action: typeof addMemory) {
 export function AddMemoryForm({ personName, scopes, caregiver }: { personName?: string; scopes: Scope[]; caregiver?: boolean }) {
   const { state, asking, run: action, pending, cancel } = useConfirmable(addMemory);
   if (asking) return <ConfirmSupersede state={asking} action={action} pending={pending} onCancel={cancel} />;
+  if (state.kind === "confirm_batch") return <ConfirmBatch state={state} action={action} pending={pending} />;
 
   return (
     <form action={action} className="space-y-4">

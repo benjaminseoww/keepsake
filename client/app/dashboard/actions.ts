@@ -5,7 +5,7 @@ import { requireSession } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   ConfirmMismatch, WriteError, correctMemory as correct, createMemory, forgetMemory as forget, reviewMemory,
-  type OldMemory, type WriteResult,
+  type BatchResult, type FactInput, type OldMemory, type WriteResult,
 } from "@/lib/writes";
 
 // Dashboard forms. Each action calls the same lib/writes.ts function as its /api/memories route,
@@ -18,17 +18,36 @@ export type FormState =
   | { kind: "idle" }
   | { kind: "saved"; message: string }
   | { kind: "error"; message: string }
-  | { kind: "confirm"; old: OldMemory; text: string; scope?: string };
+  | { kind: "confirm"; old: OldMemory; text: string; scope?: string }
+  // A multi-fact note with at least one conflict (A17): resend the split facts, not the raw text.
+  | { kind: "confirm_batch"; facts: FactInput[]; conflicts: { text: string; old: OldMemory }[]; scope?: string };
 
-async function run(write: () => Promise<WriteResult>, text: string, scope?: string): Promise<FormState> {
+function askBatch(b: BatchResult, scope?: string): FormState {
+  const facts = b.facts.map((f) => ({
+    text: f.text, event_start: f.event_start, event_end: f.event_end,
+    ...("old" in f.result && { confirm_supersedes: f.result.old.memory_id }),
+  }));
+  const conflicts = b.facts.flatMap((f) => ("old" in f.result ? [{ text: f.text, old: f.result.old }] : []));
+  return { kind: "confirm_batch", facts, conflicts, scope };
+}
+
+async function run(write: () => Promise<WriteResult | BatchResult>, text: string, scope?: string): Promise<FormState> {
   try {
     const r = await write();
+    if ("batch" in r) {
+      if (!r.saved) return askBatch(r, scope);
+      revalidatePath("/dashboard");
+      const review = r.facts.some((f) => "needs_family_review" in f.result && f.result.needs_family_review);
+      return { kind: "saved", message: `Saved ${r.facts.length} memories.${review ? " Sent to family for review." : ""}` };
+    }
     if (r.needs_confirmation) return { kind: "confirm", old: r.old, text, scope };
     revalidatePath("/dashboard");
     return { kind: "saved", message: r.needs_family_review ? "Sent to family for review." : "Saved." };
   } catch (e) {
     // The memory changed since the prompt: ask again about whatever is proposed now (R21).
-    if (e instanceof ConfirmMismatch) return { kind: "confirm", old: e.payload.old, text, scope };
+    if (e instanceof ConfirmMismatch) {
+      return "batch" in e.payload ? askBatch(e.payload, scope) : { kind: "confirm", old: e.payload.old, text, scope };
+    }
     if (e instanceof WriteError) return { kind: "error", message: e.message };
     throw e;
   }
@@ -41,7 +60,12 @@ export async function addMemory(_prev: FormState, form: FormData): Promise<FormS
   const s = await requireSession(["family", "caregiver"]);
   const text = str(form, "text");
   const scope = str(form, "scope") || undefined;
-  return run(() => createMemory(s, { text, scope, ...confirmFields(form) }), text, scope);
+  const rawFacts = str(form, "facts");
+  let facts: FactInput[] | undefined;
+  if (rawFacts) {
+    try { facts = JSON.parse(rawFacts); } catch { return { kind: "error", message: "Please add the note again." }; }
+  }
+  return run(() => createMemory(s, { text, scope, facts, ...confirmFields(form) }), text, scope);
 }
 
 // POST /api/memories/:id/corrections, as a form.
