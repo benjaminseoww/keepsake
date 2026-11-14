@@ -149,9 +149,7 @@ Deferred from the MVP. One list; do not add more copies in other docs.
 - Remove unused `@langchain/core` and `@langchain/mongodb` from `client/package.json`.
 
 ## Team
-
-Names from the git history of this repo:
-
+- Tom Cao
 - Emily Lin
 - Benjamin
 - Christopher Lam
