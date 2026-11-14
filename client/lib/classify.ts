@@ -18,9 +18,11 @@ export const SUPERSEDE_CUTOFF = Number(process.env.SUPERSEDE_CUTOFF ?? 0.8);
 // Time-stripped check (Daniel's idea): rerank again with times and dates replaced by <TIME>/<DATE>
 // (lib/strip-times.ts). A stripped score at or above STRIPPED_CUTOFF, plus a time, date or event_start
 // that differs between the originals, means "supersedes". The plain cutoff above still applies too.
-// Placeholder until tuned on the demo pairs with scripts/tune-classify.mts. Off with STRIPPED_CUTOFF=off.
+// Tuned 2026-11-14 with scripts/tune-classify.mts on real Voyage scores. Stripped supersedes scored 0.614 (physio),
+// 0.818 (Leo), 0.845 and 0.896 (dinner); the highest must-not was 0.436 ("Anna calls every evening around 7").
+// 0.55 sits in that gap. Off with STRIPPED_CUTOFF=off.
 // Costs one more rerank call, only when the new note has a time or date.
-export const STRIPPED_CUTOFF = process.env.STRIPPED_CUTOFF === "off" ? null : Number(process.env.STRIPPED_CUTOFF ?? 0.85);
+export const STRIPPED_CUTOFF = process.env.STRIPPED_CUTOFF === "off" ? null : Number(process.env.STRIPPED_CUTOFF ?? 0.55);
 // Optional Gemini judge on top of the reranked candidates (A18 Q1). Off until tested.
 export const USE_GEMINI_JUDGE = process.env.CLASSIFY_GEMINI === "1";
 
