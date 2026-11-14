@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { WithId, Document, ObjectId } from "mongodb";
 import { Check, Clock, Eraser, History, Link2, PencilLine, Plus, Replace, X } from "lucide-react";
-import { requireAuth } from "@/lib/auth";
+import { requireSession } from "@/lib/auth";
+import { loadGuidance } from "@/lib/guidance";
+import { GuidanceForm } from "./guidance-form";
 import { getDb } from "@/lib/db";
 import { SCOPES, visibleTo } from "@/lib/memories";
-import { userService } from "@/lib/userService";
+import { careTeam } from "@/lib/users";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,11 +33,13 @@ const fmt = (d?: Date | null) => d?.toLocaleString("en-CA", { dateStyle: "medium
 const panel = "rounded-2xl border-border/70 shadow-[0_20px_50px_-35px_rgba(80,40,50,0.35)]";
 
 export default async function DashboardPage() {
-  const { session: me, token } = await requireAuth(["family", "caregiver"]);
-  const team = await userService.careTeam(token);
+  // requireSession re-reads role and household from households.members on every request.
+  const me = await requireSession(["family", "caregiver"]);
+  const team = await careTeam(me);
   const person = team.find((p) => p.role === "person");
   // Caregivers only add notes; the review dashboard below is family-only.
   if (me.role === "caregiver") return <CaregiverView me={me} personName={person?.name} />;
+  const guidance = await loadGuidance(me);
 
   const db = await getDb();
   const live = { ...visibleTo(me), status: { $in: ["unverified", "verified"] } };
@@ -193,6 +197,16 @@ export default async function DashboardPage() {
           <aside className="space-y-6 lg:sticky lg:top-24">
             <Card className={panel}>
               <CardHeader>
+                <CardTitle className="font-serif text-xl font-normal">Conversation guidance</CardTitle>
+                <CardDescription>Help Keepsake respond gently to sensitive topics. Only family can edit. Changes apply from the next question.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {guidance.map((g) => <div key={g.topic} className="border-b pb-5"><GuidanceForm topic={g.topic} guidance={g.guidance} /></div>)}
+                <details><summary className="cursor-pointer text-sm font-medium">Add a topic</summary><div className="pt-3"><GuidanceForm /></div></details>
+              </CardContent>
+            </Card>
+            <Card className={panel}>
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2 font-serif text-xl font-normal"><Plus className="size-4 text-primary" aria-hidden /> Add a memory</CardTitle>
               </CardHeader>
               <CardContent>
@@ -212,7 +226,7 @@ export default async function DashboardPage() {
                       <li key={a._id.toString()} className="flex gap-3">
                         <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
                         <span>
-                          <span className="font-medium">{names[a.actor.user_id] ?? a.actor.user_id}</span> {VERBS[a.action] ?? a.action} a {a.scope} memory
+                          <span className="font-medium">{names[a.actor.user_id] ?? a.actor.user_id}</span> {a.action === "guidance" ? "updated conversation guidance" : `${VERBS[a.action] ?? a.action} a ${a.scope} memory`}
                           <span className="block text-xs text-muted-foreground">{fmt(a.at)}</span>
                         </span>
                       </li>

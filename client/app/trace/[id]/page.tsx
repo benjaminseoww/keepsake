@@ -62,6 +62,11 @@ export default async function TurnPage({ params }: { params: Promise<{ id: strin
           </p>
         </section>
 
+        {!!turn.guidance.length && <Card className="p-6 space-y-3">
+          <h2 className="font-medium">Conversation guidance used</h2>
+          {turn.guidance.map((g) => <div key={g.topic}><p className="font-medium">{g.topic}</p><p className="text-sm">{g.guidance}</p><p className="text-xs text-muted-foreground">Set by {g.set_by.name}</p></div>)}
+        </Card>}
+
         {turn.degraded && (
           <p role="status" className="flex gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {DEGRADED[turn.degraded]}

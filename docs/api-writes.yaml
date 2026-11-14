@@ -18,7 +18,7 @@ info:
       that supersedes `{id}`; memories are never edited in place)
     - reviews: `GET /api/reviews`, `POST /api/memories/{id}/review`
 
-    Auth: the `keepsake_session` cookie (JWT issued by the user service).
+    Auth: the `keepsake_session` cookie (JWT signed at login).
     Family (including the admin) can verify, deny, confirm a supersede,
     correct and forget. Caregivers can only add (403 otherwise).
     Margaret does not add memories in the MVP (A16).
@@ -642,7 +642,7 @@ components:
       in: cookie
       name: keepsake_session
       description: |
-        JWT issued by the user service at login and stored in the
+        JWT signed at login and stored in the
         `keepsake_session` cookie. Trust `user_id` only; resolve
         `person_id`, `role` and `admin` from `households.members`.
 

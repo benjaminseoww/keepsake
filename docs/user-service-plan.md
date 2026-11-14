@@ -1,6 +1,6 @@
 # User service plan
 
-Status: implemented in `backend/` (see `backend/README.md`). Secrets (`MONGODB_URI`, `AUTH_SECRET`) are supplied later.
+Status: superseded. The Fastify service in `backend/` was folded into the Next.js app (`client/lib/users.ts`) so the whole app deploys as one Next.js project. `POST /users` and `GET /auth/me` were dropped because nothing called them; see git history to restore `POST /users`.
 
 ## Scope
 

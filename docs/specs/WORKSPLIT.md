@@ -6,7 +6,7 @@ All code in client/ (A9). Each track owns its files; the shared contract below c
 - `client/lib/memories.ts` keeps: SCOPES, visibleTo, SCHEMA_VERSION, actor, audit, embed. Add `canVerify(session)` (role family, includes the admin) and `isAdmin(session)` (`admin: true` in households.members).
 - Memory doc: main's schema + review {state, proposed_supersedes, candidates[{memory_id, supersedes: bool, rerank_score}], decided_by, decided_at}. No kind, no expires_at (A10).
 - `client/lib/voyage.ts`: `embed(texts, input_type)` and `rerank(query, docs, top_k)` (rerank-2.5). Track A writes it first; B imports it.
-- Status values: unverified | verified | superseded | retracted. Recall reads verified + unverified.
+- Status values: unverified | verified | superseded | retracted. Recall reads verified only (D-A1).
 
 ## Track A: read path + trace (demo steps 1-2)
 Files: client/lib/recall.ts, client/app/api/recall/route.ts, client/app/api/turns/**, client/app/trace/**, the hardcoded agent prompt.
@@ -18,7 +18,7 @@ Files: client/lib/recall.ts, client/app/api/recall/route.ts, client/app/api/turn
 Interface to the ElevenLabs teammate: recall tool request {query}, response {turn_id, memories[{text, status}]}; answer callback above.
 
 ## Track B: write path + review (demo steps 3-4)
-Files: client/lib/classify.ts, client/app/dashboard/actions.ts, the dashboard review UI, client/app/api/talk/remember/route.ts.
+Files: client/lib/classify.ts, client/app/dashboard/actions.ts, the dashboard review UI. There is no `/api/talk/remember` route (A16).
 1. classify(newText, person_id, writerSession): embed as document, $vectorSearch candidates (all scopes, for the admin view), rerank-2.5, decide supersedes true/false per candidate (A14; method per the A1 research; start with a rerank cutoff placeholder behind this one function), return {proposed_supersedes, candidates[{memory_id, supersedes, rerank_score}]}.
 2. Add (`POST /api/memories`) by a caregiver: run classify, save unverified + review pending. The writer's response shows only candidates in their readable scopes (A3).
 3. Family write that supersedes (family can verify, so they confirm their own): return needs_confirmation {old memory text, author, date}; on confirm=true approve immediately (A6).

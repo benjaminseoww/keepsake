@@ -160,5 +160,6 @@ db.replay_runs.createIndex({ scenario_id: 1 });
 
 // turns: one doc per recall, read by the trace screen. Validator and index live in the migration.
 load("db/migrations/005_turns.js");
+load("db/migrations/007_topic_guidance.js");
 
 print("Schema ready.");

@@ -1,8 +1,10 @@
 import type { ObjectId } from "mongodb";
 import { RunTree } from "langsmith/run_trees";
 import type { Candidate, Degraded, RecalledMemory } from "./recall";
+import type { TopicGuidance } from "./guidance";
+import type { Role } from "./auth";
 
-// LangSmith observability for the voice agent. Per turn: a "recall" trace (question, retriever step with every candidate
+// LangSmith observability for recall (Margaret's voice agent, and written searches by caregivers and family). Per turn: a "recall" trace (question, retriever step with every candidate
 // and its scores, what the agent was given) and an "agent_answer" run (question, memories, what the agent said).
 // Both carry the ElevenLabs conversation id as thread_id, so a conversation reads as one LangSmith thread.
 // Off unless LANGSMITH_TRACING=true and a key is set. Best effort: failures log a warning and never touch recall.
@@ -20,18 +22,23 @@ async function post(...runs: RunTree[]) {
   await runs[0].client.awaitPendingTraceBatches();
 }
 
+// Since D-A8 anyone in the household can recall: Margaret by voice, caregivers and family in writing.
+const channel = (role: Role) => (role === "person" ? ["voice", "elevenlabs"] : [role, "written"]);
+
 export type TurnTrace = {
   turnId: ObjectId;
   question: string;
   conversationId: string | null;
   person_id: string;
   user_id: string;
+  role: Role;
   startedAt: number;
   searchedAt: number;
   candidates: Candidate[];
   memories: RecalledMemory[];
   degraded: Degraded;
   minRerankScore: number;
+  guidance?: TopicGuidance[];
 };
 
 export async function traceTurn(t: TurnTrace) {
@@ -44,8 +51,8 @@ export async function traceTurn(t: TurnTrace) {
       project_name: project(),
       start_time: t.startedAt,
       inputs: { question: t.question },
-      tags: ["voice", t.degraded ? `degraded:${t.degraded}` : "search:ok", t.memories.length ? "has-memories" : "no-memories"],
-      metadata: { thread_id: t.conversationId ?? t.turnId.toString(), turn_id: t.turnId.toString(), person_id: t.person_id, user_id: t.user_id },
+      tags: [channel(t.role)[0], t.degraded ? `degraded:${t.degraded}` : "search:ok", t.memories.length ? "has-memories" : "no-memories"],
+      metadata: { thread_id: t.conversationId ?? t.turnId.toString(), turn_id: t.turnId.toString(), person_id: t.person_id, user_id: t.user_id, role: t.role },
     });
     const search = run.createChild({ name: "search", run_type: "retriever", start_time: t.startedAt, inputs: { query: t.question } });
     await search.end({
@@ -57,7 +64,7 @@ export async function traceTurn(t: TurnTrace) {
       })),
       degraded: t.degraded,
     }, undefined, t.searchedAt);
-    await run.end({ memories: t.memories, degraded: t.degraded, min_rerank_score: t.minRerankScore });
+    await run.end({ memories: t.memories, guidance: t.guidance ?? [], degraded: t.degraded, min_rerank_score: t.minRerankScore });
     await post(run, search);
   } catch (e) {
     console.warn("langsmith: recall trace failed:", (e as Error).message);
@@ -69,12 +76,14 @@ export type AnswerTrace = {
   question: string;
   conversationId: string | null;
   person_id: string;
+  role: Role;
   at: Date;
   memories: { text: string; status: string; source: string | null }[];
   answer: string;
+  guidance?: TopicGuidance[];
 };
 
-// The agent's spoken answer (from ElevenLabs), posted once per turn when it has settled.
+// The answer given from a recall (the voice agent's speech, or a written answer), posted once per turn when it has settled.
 export async function traceAnswer(a: AnswerTrace) {
   if (!enabled()) return;
   try {
@@ -84,9 +93,10 @@ export async function traceAnswer(a: AnswerTrace) {
       run_type: "llm",
       project_name: project(),
       start_time: a.at.getTime(),
-      inputs: { question: a.question, memories: a.memories },
-      tags: ["voice", "elevenlabs", a.memories.length ? "has-memories" : "no-memories"],
-      metadata: { thread_id: a.conversationId ?? a.turnId, turn_id: a.turnId, person_id: a.person_id, ls_provider: "elevenlabs" },
+      inputs: { question: a.question, memories: a.memories, guidance: a.guidance ?? [] },
+      tags: [...channel(a.role), a.memories.length ? "has-memories" : "no-memories"],
+      metadata: { thread_id: a.conversationId ?? a.turnId, turn_id: a.turnId, person_id: a.person_id, role: a.role,
+        ...(a.role === "person" && { ls_provider: "elevenlabs" }) },
     });
     await run.end({ answer: a.answer });
     await post(run);

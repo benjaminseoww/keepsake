@@ -11,7 +11,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - Status is one of `unverified`, `verified`, `superseded`, `retracted`. Scope is one of `family`, `caregiver`. There is no `private` scope ([A17]).
 - [R11] `review.state: pending` is the review queue's source of truth; `flagged` is a UI hint only.
 - [A14] Each review candidate is `{memory_id, supersedes: bool, rerank_score}`. `proposed_supersedes` is the top-ranked candidate with `supersedes: true`, or null.
-- [R6, D-A7] `turns` is `{schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], top_rerank_score, min_rerank_score, degraded, answer}`, indexed `{person_id: 1, at: -1}` (migration 005). Empty recalls are logged too, with the best score and the cutoff, so the trace explains "I'm not sure". Time-series turns stay in NEXT_STEPS.
+- [R6, D-A7] `turns` is `{schema_version, person_id, user_id, conversation_id, at, question, results[{memory_id, text, status, scope, author_name, author_role, created_at, vector_score, rerank_score}], top_rerank_score, min_rerank_score, degraded, answer}`, indexed `{person_id: 1, at: -1}` (migration 005). Empty recalls are logged too, with the best score and the cutoff, so the trace explains "I'm not sure". Time-series turns stay in the root README Next steps.
 - [R10] Audit actions: `write` on create; `approve` or `deny` on a review decision; `verify` when confirm has no proposed supersede. `audit_log` includes `person_id` and is indexed `{person_id: 1, at: -1}`.
 - [R12] Embeddings are voyage-3.5, 1024 dims, cosine; `input_type` is `document` on write and `query` on recall. The Python seed stays as dev tooling, with this config in one documented constant set.
 - [R7] Never store an empty embedding when the embed can run before the insert, and never copy `key` or `review` onto a new doc. Do not port `queries.js` `correct()` or `retrieveFallback()` as they are.
@@ -22,7 +22,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [A17] Readable scopes: Margaret (recall only) and family both read `family` and `caregiver`; a caregiver reads `caregiver`. Nothing is private only to Margaret.
 - [R22] A writer's response never includes `proposed_supersedes`, `message`, or candidates for a memory outside that writer's readable scopes.
 - [A12] Any family member (role `family`, including the admin) can verify, deny, confirm a supersede, and correct. Caregivers cannot; their writes stay unverified until a family member reviews them.
-- [A13] The admin's only extra power is managing household members (`POST /users` in `backend/`, already `requireFamilyAdmin`).
+- [A13] The admin's only extra power is managing household members (the old `backend/` `POST /users` was removed when the user service moved into Next.js; rebuild it in `client/` when needed).
 - [D2] People never classify; they only confirm or deny. The system classifies.
 - [A2] `correct` stays as an endpoint: a family member creates a new re-embedded memory that supersedes the old one; a caregiver correction goes through the normal unverified + review path.
 - [A15] The add response and each review card show the author as `from: {name, role}` (for example "from: Ravi (caregiver)").
@@ -39,7 +39,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [R6, R17] Every recall writes a `turns` doc with the caller's `user_id` and returns `turn_id`. Whoever asked posts the answer to `POST /api/turns/:id/answer`. The trace shows who asked each question.
 - [A5] The trace (`GET /api/turns`, newest first, and `GET /api/turns/:id`) shows the question, the answer, and for each memory who added it, when, its status and its scores.
 - [D-A2] The trace is family only for the MVP; caregivers get 403. An answer can paraphrase a family-scope memory, so filtering results alone would leak.
-- [D5, A11, R13] The agent prompt is hardcoded (`client/lib/prompt.ts`) and includes today's date and no medical advice. Answer only from recall results; with none, say you are not sure and suggest asking family. There is no topic guidance: no per-topic rules in the prompt, no `topic_guidance` collection, no dashboard editor.
+- [D5 revised, A11, R13] The base prompt (`client/lib/prompt.ts`) contains general safety rules, never household-specific facts or scripted topic answers. Family edits per-household `topic_guidance` in the dashboard; caregivers cannot read or edit it. Voice recall loads current guidance on every question (including empty retrievals), returns it separately from verified memories, and snapshots it on the turn and LangSmith traces. Changes apply from the next recall, including within an existing conversation. Guidance cannot override safety or establish facts. Writes and text-free `guidance` audit entries commit together. Migration 007 preserves legacy guidance and adds the unique person/topic index. Indirect questions about an absent loved one get comfort and gentle redirection, without announcing a death. A clear direct death question gets a short verified answer and comfort. Care, health-plan, financial and housing discussions are deferred to family. Immediate danger is never redirected away.
 
 ## Write path
 
@@ -73,11 +73,11 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - Event: MongoDB "Agents in Context" Toronto hackathon, Memory You Can Govern track. Submissions due Nov 14 2026, 5 pm ET. Required: ElevenLabs, the provisioned MongoDB Atlas cluster, a 1-minute demo video. Banned: Streamlit, dashboard as the main feature, medical advice, basic RAG.
 - Source of truth: `main` at 2cdf56c (REVIEW-002). Behaviour is specified in `SPEC-memory.md`; this file logs the decisions; the work split is in `WORKSPLIT.md`.
 - [A9] All memory logic lives in the Next.js client (`client/lib`, `/api` routes, dashboard actions). There is no separate memory-service.
-- Stack: MongoDB Atlas + Atlas Vector Search; Voyage AI (voyage-3.5, rerank-2.5); ElevenLabs; the user service in `backend/` is Node/TypeScript (Fastify).
+- Stack: MongoDB Atlas + Atlas Vector Search; Voyage AI (voyage-3.5, rerank-2.5); ElevenLabs; accounts and login live in the Next.js app (`client/lib/users.ts`); the separate Fastify service was removed so it deploys as one Next.js project.
 - [A8] Mica owns the project spec. The ElevenLabs integration is built by another teammate from the spec, so the tool contract above must stay complete and standalone.
 - [R9] Scenario tests run against `MONGODB_DB=keepsake_test` with its own `memory_vec` index, never the demo DB. `seed.py` upserts demo logins into `people`.
 - [D3] The MVP has no leakage test.
-- [D6] Deferred items go in `docs/NEXT_STEPS.md` (see also the "Out of scope" section of `SPEC-memory.md`): Margaret's `remember` tool ([A16]), leakage test, `kind`, live push notifications, an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.
+- [D6] Deferred items go in the root README Next steps section: the person's `remember` tool ([A16]), leakage test, `kind`, live push notifications, related/unrelated labels, time-series turns. The Gemini classify judge is on `main` (it only adds supersedes). Implied contradictions and `JUDGE_MIN` 0.4 are still on `fix/classify-contradiction`.
 - [D7] Follow MongoDB best practices.
 
 ## Open questions
@@ -99,11 +99,11 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [Q2]–[Q6] Answered by [A2]–[A6], with [A12] amending the admin-only parts of [A3] and [A6].
 - [Q7] Answered by [A10]: no expiry.
 - [Q8] Answered by [A9]: all memory logic is in the Next.js client.
-- [Q9] Answered by [A11]: topic guidance is hardcoded in the prompt ([D5] stands). Later removed entirely, including the husband rule.
+- [Q9] Answered by [A11]: topic guidance is hardcoded in the prompt ([D5] stands). Previously removed entirely; D5 is now revised to restore family-editable guidance with general sensitive-topic safety rules.
 - The brief and early demo flow said family can "expire" memories, the system labels "supersedes/related/unrelated", and only the family admin confirms. Replaced by [A10], [A14] and [A12].
 - [R5] Recall included unverified memories tagged with status, and the prompt said "you mentioned" for them. Replaced by [D-A1].
 - The trace for caregivers in their own scopes (SPEC role table). Replaced by [D-A2].
 - [R4] Memories Margaret created herself had scope `family`, were unverified and flagged, never proposed a supersede, and private wishes stayed private and verified. Replaced by [A16] (Margaret does not add memories in the MVP).
-- [A8] The voice contract included a `remember {text, private?}` tool. Replaced by [A16]; `remember` moves to `docs/NEXT_STEPS.md`.
+- [A8] The voice contract included a `remember {text, private?}` tool. Replaced by [A16]; `remember` is in the root README Next steps.
 - [R24] Classify excluded `private`-scope memories unless the writer was the person. Replaced by [A17] (there is no `private` scope).
 - Readable scopes used to include `private` for the person. Replaced by [A17].

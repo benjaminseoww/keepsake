@@ -5,7 +5,7 @@ import { getMemberSession, requireSession } from "@/lib/auth";
 import { ask } from "@/lib/ask";
 import type { RecalledMemory } from "@/lib/recall";
 import {
-  ConfirmMismatch, WriteError, correctMemory as correct, createMemory, forgetMemory as forget, reviewMemory,
+  ConfirmMismatch, WriteError, correctMemory as correct, createMemory, forgetMemory as forget, reviewMemory, saveGuidance as saveTopicGuidance,
   type BatchResult, type FactInput, type OldMemory, type WriteResult,
 } from "@/lib/writes";
 
@@ -13,6 +13,19 @@ import {
 // so the dashboard and future clients share one set of rules (docs/api-writes.yaml).
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
+
+export async function saveGuidance(_prev: FormState, form: FormData): Promise<FormState> {
+  const s = await getMemberSession();
+  if (!s || s.role !== "family") return { kind: "error", message: "Only current family members can change guidance." };
+  try {
+    await saveTopicGuidance(s, str(form, "topic"), str(form, "guidance"));
+    revalidatePath("/dashboard");
+    return { kind: "saved", message: "Guidance updated. It applies from the next question." };
+  } catch (e) {
+    if (e instanceof WriteError) return { kind: "error", message: e.message };
+    return { kind: "error", message: "Guidance could not be saved. Please try again." };
+  }
+}
 
 // What the add and correct forms show after submitting: done, an error, or "Are you sure? This will supersede <old>".
 export type FormState =

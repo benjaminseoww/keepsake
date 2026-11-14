@@ -1,6 +1,6 @@
 # Test scenarios
 
-Spec for search and supersede behaviour. Code must pass all of these. No harness yet.
+Spec for search and supersede behaviour. Code must pass all of these. Unit tests: `cd client && npm test`. Recall evals: `client/scripts/eval-recall.mts`.
 
 - `scenarios/memories.json`: short keys for the seed memories in `db/seed.py`.
 - `scenarios/read_path.json`: someone asks a question. Checks scope filtering, status filtering, and that rerank keeps the right memories and drops off-topic ones. Readable scopes (A17): Margaret (recall only) and family both read family and caregiver; a caregiver reads caregiver. There is no private scope.

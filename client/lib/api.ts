@@ -1,10 +1,10 @@
-import { getSession, type Session } from "./auth";
+import { getMemberSession, type Session } from "./auth";
 import { apiError } from "./http";
 import { ConfirmMismatch, WriteError } from "./writes";
 
 // Runs a route body for a signed-in caller and maps write-path errors to HTTP (docs/api-writes.yaml).
 export async function route<T>(fn: (s: Session) => Promise<T>, statusOf: (result: T) => number = () => 200) {
-  const s = await getSession();
+  const s = await getMemberSession();
   if (!s) return apiError("unauthorized", "Sign in required");
   try {
     const result = await fn(s);

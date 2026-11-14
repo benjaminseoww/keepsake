@@ -64,6 +64,32 @@ const authorName = (m: Document, names: Names) =>
 const from = (s: Session): From => ({ name: s.name, role: s.role });
 const isFamily = (s: Session) => s.role === "family";
 
+// Blank guidance removes a topic. Changes and their text-free audit commit together.
+export async function saveGuidance(s: Session, topicInput: unknown, guidanceInput: unknown) {
+  requireRole(s, ["family"], "Only family can change conversation guidance");
+  const topic = typeof topicInput === "string" ? topicInput.trim().toLowerCase() : "";
+  const guidance = typeof guidanceInput === "string" ? guidanceInput.trim() : "";
+  if (!topic || topic.length > 100 || typeof guidanceInput !== "string" || guidance.length > 2000) {
+    throw new WriteError("bad_request", "Use a topic up to 100 characters and guidance up to 2,000 characters.");
+  }
+  await inTransaction(async (session) => {
+    const coll = (await getDb()).collection("topic_guidance");
+    const filter = { person_id: s.person_id, topic };
+    const existing = await coll.findOne(filter, { session });
+    const id = existing?._id ?? new ObjectId();
+    if (!guidance) {
+      if (!existing) return;
+      await coll.deleteOne(filter, { session });
+    } else {
+      await coll.updateOne(filter, { $set: {
+        schema_version: SCHEMA_VERSION, ...filter, guidance,
+        set_by: { user_id: s.user_id, name: s.name }, updated_at: new Date(),
+      }, $setOnInsert: { _id: id } }, { upsert: true, session });
+    }
+    await audit(s, id, "guidance", "family", null, null, session);
+  });
+}
+
 function requireRole(s: Session, roles: Role[], message: string) {
   if (!roles.includes(s.role)) throw new WriteError("forbidden", message);
 }
@@ -355,7 +381,7 @@ export async function reviewMemory(s: Session, id: string, decision: unknown): P
       const r = await coll.updateOne(pending, { $set: { ...decidedBy, status: "retracted", "review.state": "denied" } }, { session });
       if (!r.modifiedCount) throw new WriteError("conflict", "This review has already been decided");
       await audit(s, _id, "deny", mem.scope, null, null, session);
-      const old = proposed ? await coll.findOne({ _id: proposed }, { projection: { status: 1 }, session }) : null;
+      const old = proposed ? await coll.findOne({ _id: proposed, person_id: s.person_id }, { projection: { status: 1 }, session }) : null;
       return result("deny", "retracted", "denied", null, old?.status ?? null, "deny");
     }
 
@@ -393,7 +419,7 @@ export async function listReviews(s: Session): Promise<ReviewItem[]> {
 
   const ids = pending.flatMap((m) => (m.review.candidates ?? []).map((c: { memory_id: ObjectId }) => c.memory_id));
   const lookups = ids.length
-    ? await coll.find({ _id: { $in: ids }, scope: { $in: readableScopes(s.role) } }, { projection: { text: 1, source: 1, created_at: 1 } }).toArray()
+    ? await coll.find({ _id: { $in: ids }, person_id: s.person_id, scope: { $in: readableScopes(s.role) } }, { projection: { text: 1, source: 1, created_at: 1 } }).toArray()
     : [];
   const byId = new Map(lookups.map((d) => [d._id.toString(), d]));
 

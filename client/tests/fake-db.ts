@@ -50,9 +50,16 @@ export function fakeDb(seed: Record<string, Doc[]> = {}) {
         store[name] = store[name].map((d, j) => (j === i ? next : d));
         return before;
       },
-      async updateOne(filter: Doc, update: { $set: Doc }) {
+      async updateOne(filter: Doc, update: { $set: Doc; $setOnInsert?: Doc }, options?: { upsert?: boolean; session?: unknown }) {
         const i = store[name].findIndex((d) => matches(d, filter));
-        if (i < 0) return { matchedCount: 0, modifiedCount: 0 };
+        if (i < 0) {
+          if (options?.upsert) {
+            const doc = { _id: new ObjectId(), ...filter, ...update.$setOnInsert, ...update.$set };
+            store[name] = [...store[name], doc];
+            return { matchedCount: 0, modifiedCount: 0, upsertedId: doc._id };
+          }
+          return { matchedCount: 0, modifiedCount: 0 };
+        }
         let next = store[name][i];
         for (const [k, v] of Object.entries(update.$set)) next = setPath(next, k, v);
         store[name] = store[name].map((d, j) => (j === i ? next : d));

@@ -5,6 +5,7 @@ import type { Role, Session } from "./auth";
 import { embed, rerank, VoyageError } from "./voyage";
 import { isoDate } from "./time";
 import { traceTurn } from "./tracing";
+import { loadGuidance } from "./guidance";
 
 // Calibrated on the seed data (scripts/calibrate-recall.mts, Nov 14): in-knowledge 0.646-0.882, out-of-knowledge 0.256-0.371.
 export const MIN_RERANK_SCORE = Number(process.env.MIN_RERANK_SCORE ?? 0.5);
@@ -96,9 +97,10 @@ export const applyCutoff = (candidates: Candidate[]) =>
 export async function recall(s: Session, query: string, conversation_id: string | null) {
   const db = await getDb();
   const startedAt = Date.now();
-  const [{ candidates, degraded }, household] = await Promise.all([
+  const [{ candidates, degraded }, household, guidance] = await Promise.all([
     search(s.person_id, readableScopes(s.role), query),
     db.collection("households").findOne({ person_id: s.person_id }, { projection: { members: 1 } }),
+    s.role === "person" ? loadGuidance(s) : Promise.resolve([]),
   ]);
   const searchedAt = Date.now();
 
@@ -113,6 +115,7 @@ export async function recall(s: Session, query: string, conversation_id: string 
     conversation_id,
     at: new Date(),
     question: query,
+    guidance,
     results: kept.map((c) => ({
       memory_id: c._id,
       text: c.text,
@@ -137,8 +140,8 @@ export async function recall(s: Session, query: string, conversation_id: string 
     source: { role: c.source.role, name: author(c) },
   }));
   const trace = () => traceTurn({
-    turnId: insertedId, question: query, conversationId: conversation_id, person_id: s.person_id, user_id: s.user_id,
-    startedAt, searchedAt, candidates, memories, degraded, minRerankScore: MIN_RERANK_SCORE,
+    turnId: insertedId, question: query, conversationId: conversation_id, person_id: s.person_id, user_id: s.user_id, role: s.role,
+    startedAt, searchedAt, candidates, memories, guidance, degraded, minRerankScore: MIN_RERANK_SCORE,
   });
-  return { turn_id: insertedId.toString(), memories, trace };
+  return { turn_id: insertedId.toString(), memories, ...(s.role === "person" && { guidance }), trace };
 }

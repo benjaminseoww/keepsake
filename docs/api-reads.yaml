@@ -13,7 +13,7 @@ info:
     `client/lib/turns.ts` (also used by the `/trace` pages), and the
     agent prompt in `client/lib/prompt.ts`.
 
-    Auth: the `keepsake_session` cookie (JWT issued by the user service).
+    Auth: the `keepsake_session` cookie (JWT signed at login).
     Trust the token for `user_id` only; role and household are re-read
     from `households.members` on every request. Any household member can
     search; the role decides which scopes the search reads (A17), inside
@@ -407,7 +407,7 @@ components:
       in: cookie
       name: keepsake_session
       description: |
-        JWT issued by the user service at login and stored in the
+        JWT signed at login and stored in the
         `keepsake_session` cookie. Trust `user_id` only; resolve
         `person_id` and `role` from `households.members`.
 

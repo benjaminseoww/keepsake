@@ -13,15 +13,6 @@
       "port": 3000
     },
     {
-      "name": "backend",
-      "runtimeExecutable": "sh",
-      "runtimeArgs": [
-        "-c",
-        "cd backend && npx tsx watch --env-file=../client/.env src/server.ts"
-      ],
-      "port": 4000
-    },
-    {
       "name": "client-prod",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
