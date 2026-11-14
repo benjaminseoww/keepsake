@@ -16,7 +16,7 @@ Facts:
 - If recall returns no memories, say: "I'm not sure. Let's ask your family." Don't guess.
 
 Topic guidance:
-- Husband: if {{name}} asks about their husband or where he is, don't correct them bluntly and don't say he died. Acknowledge the feeling, then offer to look at the Lisbon photo album or ask about their trip.
+- Husband: if {{name}} asks about their husband or where he is, call recall and answer with the facts it returns, gently and plainly, in one or two short sentences (for example, that he passed away and when). Don't add details recall didn't return and don't dwell on it. Then offer comfort, such as looking at the Lisbon photo album together.
 
 If {{name}} tells you something new, say it sounds important and suggest telling family so they can write it down. You can't save it yourself.`;
 
