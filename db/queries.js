@@ -50,16 +50,16 @@ function correct(oldId, newText, actor) {
   const old = db.memories.findOne({ _id: oldId });
   const { _id, ...rest } = old;
   const newId = db.memories.insertOne({
-    ...rest, text: newText, status: "verified", supersedes: oldId,
+    ...rest, schema_version: 1, text: newText, status: "verified", supersedes: oldId,
     source: actor, flagged: false, embedding: [], created_at: new Date()
   }).insertedId;
   db.memories.updateOne({ _id: oldId }, { $set: { status: "superseded" } });
-  db.audit_log.insertOne({ memory_id: newId, action: "correct", actor, old_id: oldId, new_id: newId, at: new Date() });
+  db.audit_log.insertOne({ schema_version: 1, memory_id: newId, action: "correct", actor, old_id: oldId, new_id: newId, at: new Date() });
   return newId;
 }
 
 // Forget: delete content and embedding, keep a content-free audit row.
 function forget(id, actor) {
   db.memories.deleteOne({ _id: id });
-  db.audit_log.insertOne({ memory_id: id, action: "forget", actor, old_id: id, new_id: null, at: new Date() });
+  db.audit_log.insertOne({ schema_version: 1, memory_id: id, action: "forget", actor, old_id: id, new_id: null, at: new Date() });
 }

@@ -1,6 +1,12 @@
 // Run with: mongosh "$MONGODB_URI/keepsake" db/schema.js
 // Creates collections, schema validation and regular indexes.
 // The vector index is created separately in Atlas (see vector_index.json).
+//
+// Schema versioning: every doc carries schema_version (int). Docs without it are v0 (pre-versioning).
+// Bump the number here, in seed.py and in queries.js when a collection's shape changes,
+// and add a migration under db/migrations that upgrades old docs.
+// Current: memories 1, people 1, households 1, audit_log 1.
+const SV = { bsonType: ["int", "long"], minimum: 1 };
 
 const drop = (name) => { if (db.getCollectionNames().includes(name)) db[name].drop(); };
 // people is not dropped: it holds logins (auth only).
@@ -9,8 +15,9 @@ const drop = (name) => { if (db.getCollectionNames().includes(name)) db[name].dr
 db.createCollection("memories", {
   validator: { $jsonSchema: {
     bsonType: "object",
-    required: ["person_id", "text", "scope", "status", "source", "created_at"],
+    required: ["schema_version", "person_id", "text", "scope", "status", "source", "created_at"],
     properties: {
+      schema_version: SV,
       person_id:  { bsonType: "string" },
       text:       { bsonType: "string" },
       scope:      { enum: ["private", "family", "caregiver"] },
@@ -72,8 +79,9 @@ if (!db.getCollectionNames().includes("people")) {
   db.createCollection("people", {
     validator: { $jsonSchema: {
       bsonType: "object",
-      required: ["user_id", "email", "password_hash"],
+      required: ["schema_version", "user_id", "email", "password_hash"],
       properties: {
+        schema_version: SV,
         user_id:       { bsonType: "string" },
         name:          { bsonType: "string" },
         email:         { bsonType: "string" },
@@ -91,8 +99,9 @@ db.people.createIndex({ email: 1 }, { unique: true });
 db.createCollection("households", {
   validator: { $jsonSchema: {
     bsonType: "object",
-    required: ["person_id", "members"],
+    required: ["schema_version", "person_id", "members"],
     properties: {
+      schema_version: SV,
       person_id: { bsonType: "string" },
       members: {
         bsonType: "array",
@@ -122,8 +131,9 @@ db.households.createIndex({ "members.user_id": 1 }, { unique: true });
 db.createCollection("audit_log", {
   validator: { $jsonSchema: {
     bsonType: "object",
-    required: ["memory_id", "action", "actor", "at"],
+    required: ["schema_version", "memory_id", "action", "actor", "at"],
     properties: {
+      schema_version: SV,
       action: { enum: ["write", "verify", "correct", "approve", "deny", "forget", "expire", "rescope"] },
       actor: {
         bsonType: "object",

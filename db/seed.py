@@ -20,6 +20,7 @@ from pymongo import MongoClient
 
 load_dotenv()
 
+SCHEMA_VERSION = 1  # keep in step with db/schema.js
 EMBED_MODEL = "voyage-3.5"  # 1024 dims, matches db/vector_index.json
 
 db = MongoClient(os.environ["MONGODB_URI"])[os.environ.get("MONGODB_DB", "keepsake")]
@@ -37,6 +38,7 @@ for name in ["memories", "households", "audit_log", "replay_runs"]:
     db[name].delete_many({})
 
 db.households.insert_one({
+    "schema_version": SCHEMA_VERSION,
     "person_id": "margaret",
     "members": [
         {"user_id": "margaret", "name": "Margaret", "role": "person"},
@@ -131,7 +133,7 @@ vectors = vo.embed([m["text"] for m in memories], model=EMBED_MODEL, input_type=
 PRIVATE = {"_supersedes", "_proposes", "_candidates", "_decision"}
 docs = []
 for m, v in zip(memories, vectors):
-    d = {"person_id": "margaret", "supersedes": None, "flagged": False, "expires_at": None, "created_at": now}
+    d = {"schema_version": SCHEMA_VERSION, "person_id": "margaret", "supersedes": None, "flagged": False, "expires_at": None, "created_at": now}
     d.update({k: val for k, val in m.items() if k not in PRIVATE})
     d["embedding"] = v
     docs.append(d)
@@ -149,7 +151,7 @@ for m in memories:
                        "candidates": [{"memory_id": ids[m["_supersedes"]], "label": "supersedes"}],
                        "decided_by": "anna", "decided_at": ago(days=20)},
         }})
-        db.audit_log.insert_one({"memory_id": _id, "action": "correct", "actor": anna,
+        db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "correct", "actor": anna,
                                  "old_id": ids[m["_supersedes"]], "new_id": _id, "at": ago(days=20)})
     if "_proposes" in m:
         state, by, at = m.get("_decision", ("pending", None, None))
@@ -160,11 +162,13 @@ for m in memories:
             "decided_by": by, "decided_at": at,
         }}})
         if state == "denied":
-            db.audit_log.insert_one({"memory_id": _id, "action": "deny", "actor": {"role": "family", "user_id": by},
+            db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "deny", "actor": {"role": "family", "user_id": by},
                                      "old_id": None, "new_id": None, "at": at})
 
 counts = {s: db.memories.count_documents({"status": s}) for s in ["verified", "unverified", "superseded", "retracted"]}
 pending = db.memories.count_documents({"review.state": "pending"})
 proposing = db.memories.count_documents({"review.state": "pending", "review.proposed_supersedes": {"$ne": None}})
 print(f"Seeded {len(docs)} memories with {EMBED_MODEL} ({len(vectors[0])} dims): {counts}")
+old = sum(db[c].count_documents({"schema_version": {"$ne": SCHEMA_VERSION}}) for c in ["memories", "households", "audit_log", "people"])
+print(f"Docs not on schema_version {SCHEMA_VERSION}: {old}")
 print(f"Review queue: {pending} pending, {proposing} propose an override.")

@@ -34,3 +34,15 @@ The admin never classifies. They approve or deny the override the system propose
 - `people` is auth only: `user_id`, `name`, `email`, `password_hash`, with unique indexes on `user_id` and `email`. `schema.js` never drops it.
 - `households` owns membership and roles: one doc per person, members embedded, unique index on `members.user_id`.
 - Login reads `people` once. Every request after that resolves role through `households` (see `whoami` in `queries.js`).
+
+## Schema versions
+
+Every doc in `memories`, `households`, `people` and `audit_log` has `schema_version` (int). The validators require it. A doc without it is v0, from before versioning.
+
+All collections are on version 1. When a collection's shape changes:
+
+1. Bump its number in `schema.js`, `seed.py` (`SCHEMA_VERSION`) and `queries.js`.
+2. Add a migration in `db/migrations/` that upgrades old docs and runs `collMod`. Don't drop the collection, because that deletes the vector index.
+3. Code that reads a doc checks `schema_version` and handles older versions until the migration has run.
+
+Migrations so far: `001_review.js` (review subdoc), `002_people_auth.js` (people is auth only), `003_schema_version.js` (adds the field and stamps existing docs as v1).
