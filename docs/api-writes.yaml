@@ -16,8 +16,9 @@ info:
     Trust the token for `user_id` only; resolve `person_id`, `role` and
     `admin` from `households.members` on every request. Family (including
     the admin) can verify, deny, confirm a supersede and correct.
-    Caregivers cannot (403). Margaret adds memories only through
-    `POST /api/talk/remember`.
+    Caregivers cannot (403). There is one add endpoint, `addMemory`,
+    for family and caregiver (A15). Margaret does not add memories
+    in the MVP (A16).
 
     Every inserted memory has `schema_version: 1`. Status is
     `unverified` | `verified` | `superseded` | `retracted`. Scope is
@@ -37,10 +38,8 @@ servers:
     description: Next.js client (`client/`)
 
 tags:
-  - name: Remember
-    description: Margaret's voice-tool write (`POST /api/talk/remember`).
   - name: Add
-    description: Dashboard add-note / add-memory (`addMemory` server action).
+    description: Dashboard add-note / add-memory (`addMemory` server action). One add endpoint for every writer (A15).
   - name: Review
     description: Pending queue, confirm and deny. Family only.
   - name: Correct
@@ -50,66 +49,6 @@ security:
   - cookieAuth: []
 
 paths:
-  /api/talk/remember:
-    post:
-      operationId: remember
-      tags: [Remember]
-      summary: Margaret adds a memory by voice
-      description: |
-        Existing HTTP route, `client/app/api/talk/remember/route.ts`.
-        Only the person (Margaret) may call it; anyone else gets 401.
-
-        The system runs classify, but `proposed_supersedes` is always
-        null when `source.role` is `person` (R4). A non-private memory
-        is saved with scope `family`, status `unverified`, `flagged: true`
-        and `review` pending, and an audit `write` is recorded. Private
-        wishes (`private: true`) are saved with scope `private`, status
-        `verified`, and no review.
-
-        The ElevenLabs tool contract (A8) is the response shape:
-        `{saved, needs_family_review}`. Candidates may be stored on the
-        review subdoc but are never returned here, so this route cannot
-        leak a memory the voice client should not see. That is
-        consistent with A3 (stricter, not a conflict).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RememberRequest"
-            examples:
-              family_scope:
-                summary: Margaret mentions a visit
-                value:
-                  text: Margaret said her sister Ruth visited yesterday
-              private_wish:
-                summary: A private wish, no family review
-                value:
-                  text: I want to give my mother's ring to Leo, not to Anna
-                  private: true
-      responses:
-        "200":
-          description: Memory saved.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RememberResponse"
-              examples:
-                needs_review:
-                  summary: Non-private remember, waiting for family
-                  value:
-                    saved: true
-                    needs_family_review: true
-                private_saved:
-                  summary: Private wish, verified immediately
-                  value:
-                    saved: true
-                    needs_family_review: false
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
   /actions/addMemory:
     post:
       operationId: addMemory
@@ -119,7 +58,13 @@ paths:
       description: |
         Next.js server action `addMemory` in
         `client/app/dashboard/actions.ts`. Not an HTTP route. Called
-        from the family and caregiver dashboard forms.
+        from the family and caregiver dashboard forms. This is the
+        one add endpoint for every writer (A15). The person cannot
+        call it (403).
+
+        The author is `source: {user_id, name, role}`, resolved from
+        the session and `households.members`, never from the request
+        body (R1, A15). The response shows it as `from: {name, role}`.
 
         The system runs classify over `verified` memories only (R19),
         excluding `private` scope unless the writer is the person
@@ -199,6 +144,9 @@ paths:
                     memory_id: "672e00000000000000000021"
                     status: unverified
                     scope: caregiver
+                    from:
+                      name: Ravi
+                      role: caregiver
                     proposed_supersedes: "672e00000000000000000001"
                     message: This will supersede Physio visit is every Tuesday at 2pm
                     candidates:
@@ -226,6 +174,9 @@ paths:
                     memory_id: "672e00000000000000000022"
                     status: verified
                     scope: family
+                    from:
+                      name: Anna
+                      role: family
                     proposed_supersedes: "672e00000000000000000002"
                     supersedes: "672e00000000000000000002"
                     audit_action: approve
@@ -245,6 +196,9 @@ paths:
                     memory_id: "672e00000000000000000024"
                     status: verified
                     scope: family
+                    from:
+                      name: Anna
+                      role: family
                     proposed_supersedes: null
                     candidates: []
         "400":
@@ -294,8 +248,9 @@ paths:
                         status: unverified
                         scope: caregiver
                         flagged: true
-                        author_name: Ravi
-                        author_role: caregiver
+                        from:
+                          name: Ravi
+                          role: caregiver
                         created_at: "2026-11-14T12:00:00-05:00"
                         message: This will supersede Physio visit is every Tuesday at 2pm
                         proposed_old:
@@ -320,8 +275,9 @@ paths:
                         status: unverified
                         scope: caregiver
                         flagged: true
-                        author_name: Ravi
-                        author_role: caregiver
+                        from:
+                          name: Ravi
+                          role: caregiver
                         created_at: "2026-11-13T16:00:00-05:00"
                         message: This will supersede Reading glasses are usually on the kitchen windowsill
                         proposed_old:
@@ -341,26 +297,27 @@ paths:
                               rerank_score: 0.86
                           decided_by: null
                           decided_at: null
-                      - id: "672e00000000000000000013"
-                        text: Margaret said she lives on Maple Avenue
+                      - id: "672e00000000000000000016"
+                        text: Ravi brings the newspaper with him on Monday visits
                         status: unverified
-                        scope: family
+                        scope: caregiver
                         flagged: true
-                        author_name: Margaret
-                        author_role: person
-                        created_at: "2026-11-13T10:00:00-05:00"
+                        from:
+                          name: Ravi
+                          role: caregiver
+                        created_at: "2026-11-13T06:00:00-05:00"
                         message: null
                         proposed_old: null
                         review:
                           state: pending
                           proposed_supersedes: null
                           candidates:
-                            - memory_id: "672e00000000000000000006"
-                              text: Margaret has lived at 14 Elm Street since 2019
+                            - memory_id: "672e00000000000000000007"
+                              text: Ravi visits on weekday mornings at 10
                               author_name: Anna
-                              created_at: "2026-09-01T12:00:00-04:00"
+                              created_at: "2026-10-25T10:00:00-04:00"
                               supersedes: false
-                              rerank_score: 0.64
+                              rerank_score: 0.58
                           decided_by: null
                           decided_at: null
         "401":
@@ -405,9 +362,9 @@ paths:
                 value:
                   id: "672e00000000000000000021"
               confirm_plain:
-                summary: David verifies a pending note with no supersede
+                summary: David verifies Ravi's cardigan note, which does not supersede anything
                 value:
-                  id: "672e00000000000000000014"
+                  id: "672e00000000000000000017"
       responses:
         "200":
           description: Review confirmed.
@@ -432,7 +389,7 @@ paths:
                   summary: Confirm with no proposal (David)
                   value:
                     decision: confirm
-                    memory_id: "672e00000000000000000014"
+                    memory_id: "672e00000000000000000017"
                     new_status: verified
                     review_state: approved
                     supersedes: null
@@ -474,15 +431,15 @@ paths:
             schema:
               $ref: "#/components/schemas/ReviewDecisionRequest"
             example:
-              id: "672e00000000000000000013"
+              id: "672e00000000000000000016"
           application/json:
             schema:
               $ref: "#/components/schemas/ReviewDecisionRequest"
             examples:
-              deny_maple:
-                summary: Anna denies Margaret's Maple Avenue statement
+              deny_newspaper:
+                summary: Anna denies Ravi's newspaper note
                 value:
-                  id: "672e00000000000000000013"
+                  id: "672e00000000000000000016"
       responses:
         "200":
           description: Review denied.
@@ -492,10 +449,10 @@ paths:
                 $ref: "#/components/schemas/ReviewDecisionResponse"
               examples:
                 deny:
-                  summary: Deny; the Elm Street address stays verified
+                  summary: Deny; the weekday-morning visit routine stays verified
                   value:
                     decision: deny
-                    memory_id: "672e00000000000000000013"
+                    memory_id: "672e00000000000000000016"
                     new_status: retracted
                     review_state: denied
                     supersedes: null
@@ -587,6 +544,9 @@ paths:
                     memory_id: "672e00000000000000000023"
                     status: verified
                     scope: caregiver
+                    from:
+                      name: Anna
+                      role: family
                     proposed_supersedes: "672e00000000000000000001"
                     supersedes: "672e00000000000000000001"
                     audit_action: approve
@@ -624,7 +584,7 @@ components:
               code: bad_request
               message: text is required
     Unauthorized:
-      description: Not signed in, or the caller is not the person on `/api/talk/remember`.
+      description: Not signed in.
       content:
         application/json:
           schema:
@@ -773,32 +733,6 @@ components:
         old:
           $ref: "#/components/schemas/OldMemory"
 
-    RememberRequest:
-      type: object
-      additionalProperties: false
-      required: [text]
-      properties:
-        text:
-          type: string
-          minLength: 1
-          maxLength: 1000
-        private:
-          type: boolean
-          default: false
-          description: If true, save as a private verified wish with no family review.
-
-    RememberResponse:
-      type: object
-      additionalProperties: false
-      required: [saved, needs_family_review]
-      properties:
-        saved:
-          type: boolean
-          const: true
-        needs_family_review:
-          type: boolean
-          description: False only for private wishes.
-
     AddMemoryRequest:
       type: object
       additionalProperties: false
@@ -832,10 +766,21 @@ components:
       then:
         required: [confirm_supersedes]
 
+    From:
+      type: object
+      additionalProperties: false
+      description: Display form of the author (A15). Built from source, never from the request body.
+      required: [name, role]
+      properties:
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+
     SavedWrite:
       type: object
       additionalProperties: false
-      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, candidates]
+      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, from, candidates]
       properties:
         saved:
           type: boolean
@@ -851,6 +796,8 @@ components:
           $ref: "#/components/schemas/MemoryStatus"
         scope:
           $ref: "#/components/schemas/Scope"
+        from:
+          $ref: "#/components/schemas/From"
         proposed_supersedes:
           description: |
             The proposed old memory_id. Omitted (or null) when there
@@ -933,7 +880,7 @@ components:
     ReviewItem:
       type: object
       additionalProperties: false
-      required: [id, text, status, scope, flagged, author_name, author_role, created_at, review, proposed_old, message]
+      required: [id, text, status, scope, flagged, from, created_at, review, proposed_old, message]
       properties:
         id:
           $ref: "#/components/schemas/ObjectId"
@@ -945,10 +892,8 @@ components:
           $ref: "#/components/schemas/Scope"
         flagged:
           type: boolean
-        author_name:
-          type: string
-        author_role:
-          $ref: "#/components/schemas/Role"
+        from:
+          $ref: "#/components/schemas/From"
         created_at:
           type: string
           format: date-time

@@ -7,7 +7,6 @@ All people and data are invented.
 Memory states in this seed:
   verified                  trusted, used as fact
   unverified + pending      waiting for a family member; may propose an override (review.proposed_supersedes)
-  unverified (from person)  something Margaret said; flagged, never proposes an override
   superseded                replaced by a newer verified memory (history for the trace screen)
   retracted                 a family member denied it; kept for audit, never retrieved
 """
@@ -32,7 +31,6 @@ day = lambda d: d.astimezone().strftime("%A %b %-d")  # e.g. "Saturday Nov 14", 
 
 anna = {"role": "family", "user_id": "anna"}
 ravi = {"role": "caregiver", "user_id": "ravi"}
-marg = {"role": "person", "user_id": "margaret"}
 
 for name in ["memories", "households", "audit_log", "replay_runs"]:
     db[name].delete_many({})
@@ -81,8 +79,7 @@ memories = [
     {"key": "lisbon_album", "text": "Margaret likes looking at the photo album from the 1998 Lisbon trip", "scope": "caregiver", "status": V, "source": anna},
     {"key": "radio", "text": "Margaret prefers the radio on CBC Music in the afternoon", "scope": "caregiver", "status": V, "source": ravi},
 
-    # ---------- verified: private and family-only ----------
-    {"key": "ring_private", "text": "I want to give my mother's ring to Leo, not to Anna", "scope": "private", "status": V, "source": marg},
+    # ---------- verified: family-only ----------
     {"key": "assisted_living", "text": "Anna and her brother are discussing whether Margaret should move to assisted living", "scope": "family", "status": V, "source": anna},
 
     # ---------- unverified, pending, PROPOSES an override (caregiver) ----------
@@ -105,14 +102,6 @@ memories = [
      "flagged": True, "_proposes": None,
      "_candidates": [("garbage_day", False)], "created_at": ago(hours=2),
      "note": "Same topic, different detail: who, not when."},
-
-    # ---------- unverified, from Margaret (never proposes an override) ----------
-    {"key": "ruth_unverified", "text": "Margaret said her sister Ruth visited yesterday", "scope": "family", "status": U, "source": marg,
-     "flagged": True, "_proposes": None, "_candidates": [], "created_at": ago(hours=18)},
-    {"key": "maple_unverified", "text": "Margaret said she lives on Maple Avenue", "scope": "family", "status": U, "source": marg,
-     "flagged": True, "_proposes": None,
-     "_candidates": [("address", False)], "created_at": ago(hours=26),
-     "note": "Contradicts a verified fact, but a person's statement never overrides family-verified memory."},
 
     # ---------- history: approved override (old one superseded) ----------
     {"key": "ravi_9am_old", "text": "Ravi visits on weekday mornings at 9", "scope": "caregiver", "status": "superseded", "source": anna,

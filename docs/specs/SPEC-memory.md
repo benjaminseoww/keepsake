@@ -8,7 +8,7 @@ Roles come from `households.members` on every request. The JWT is trusted for us
 | Action | person (Margaret) | caregiver | family | family admin |
 |---|---|---|---|---|
 | Ask the voice agent (recall) | yes | no | no | no |
-| Add a memory | yes, by voice (remember) | yes, saved unverified | yes | yes |
+| Add a memory | no (MVP, A16) | yes, saved unverified | yes | yes |
 | Verify / deny / confirm a supersede | no | **no** | yes | yes |
 | Correct a memory | no | goes to review | yes | yes |
 | View the trace | no | own scopes | yes | yes |
@@ -40,7 +40,8 @@ main's schema plus `review`:
 classify(text, person_id): embed as a document, then `$vectorSearch` candidates across all scopes for this person, then rerank-2.5, then decide for each candidate whether the new memory supersedes it (true/false). Return `{proposed_supersedes, candidates:[{memory_id, supersedes, rerank_score}]}`. Candidates are `verified` memories only (R19), excluding `private` scope unless the writer is the person (R24). proposed_supersedes is the top-ranked candidate with supersedes true, or null. It sits behind one function so the method can change (Q1 research pending; start with a rerank cutoff).
 
 - **Caregiver adds:** the memory is saved unverified with review pending, proposed_supersedes and candidates set, and flagged true. The caregiver's response lists only candidates in the caregiver's readable scopes.
-- **Margaret adds (remember):** saved with scope family, unverified, review pending. Its proposed_supersedes is always null (R4). Private wishes stay private and verified, as main already does.
+- **One add endpoint (A15):** family and caregiver adds both go through `addMemory`. The author (`source: {user_id, name, role}`) comes from the session and `households.members`, never from the request body (R1). The response and the review card show who added it ("from: Ravi (caregiver)").
+- **Margaret does not add memories in the MVP (A16).** No remember tool. Moved to NEXT_STEPS.
 - **Family adds or corrects:** if classify proposes a supersede, the response is `{needs_confirmation: true, old:{memory_id, text, author_name, created_at}}`. The UI shows "Are you sure? This will supersede <old>". Resending with `confirm: true` and `confirm_supersedes: <old memory_id>` saves it verified (the server rejects with 409 if classify no longer proposes that id or the old memory is no longer verified; R21), marks the old memory superseded and writes audit approve, all in one transaction. With no supersede, the memory is saved verified.
 - **Review queue (family only):** all pending reviews, each with the old memory looked up (text, author, date) so the card can say "This will supersede <old>". Every family- and caregiver-scoped candidate is visible here; private ones never are (R24).
 - **Confirm (family):** in one transaction, the new memory becomes verified with review approved and supersedes set; the old one becomes superseded; audit approve. With no proposal, it's a plain verify.
@@ -52,7 +53,7 @@ classify(text, person_id): embed as a document, then `$vectorSearch` candidates 
 - Multi-document changes use `session.withTransaction`. A memory is never stored with an empty embedding when the embed can run before the insert.
 
 ## Voice agent contract (for the ElevenLabs teammate)
-- Client tools: `recall {query}` returns `{turn_id, memories[{text, status}]}`; `remember {text, private?}` returns `{saved, needs_family_review}`.
+- Client tool: `recall {query}` returns `{turn_id, memories[{text, status}]}`. There is no `remember` tool in the MVP (A16).
 - After the agent answers, call `POST /api/turns/:turn_id/answer`.
 - Hardcoded prompt: today's date; answer only from recall results; with no results, say you're not sure and suggest asking family; use "you mentioned" for unverified memories; no medical advice; topic guidance written inline (D5). The `topic_guidance` collection is no longer read.
 

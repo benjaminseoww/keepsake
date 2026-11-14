@@ -5,6 +5,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 ## Data model
 
 - [R1] Every insert writes `schema_version: 1`. Memories use main's model plus a `review` subdoc and a `retracted` status.
+- [A15] The author is stored as `source: {user_id, name, role}`, resolved from the session and `households.members`, never from the request body.
 - [D4] Memories have no `kind` field.
 - [A10] No expiry: do not write `expires_at`, and do not use a TTL index. Time-bound facts keep their dates in the text (for example "Anna is visiting Nov 12-16"). Optional `event_start` / `event_end` are allowed, but recall never filters on them.
 - Status is one of `unverified`, `verified`, `superseded`, `retracted`. Scope is one of `private`, `family`, `caregiver`.
@@ -24,7 +25,8 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [A13] The admin's only extra power is managing household members (`POST /users` in `backend/`, already `requireFamilyAdmin`).
 - [D2] People never classify; they only confirm or deny. The system classifies.
 - [A2] `correct` stays as an endpoint: a family member creates a new re-embedded memory that supersedes the old one; a caregiver correction goes through the normal unverified + review path.
-- [R4] Memories Margaret creates herself have scope `family`, status `unverified`, `flagged: true` and `review` pending. `proposed_supersedes` is always null when `source.role` is `person`. Private wishes stay private and verified.
+- [A15] The `addMemory` response and each review card show the author as `from: {name, role}` (for example "from: Ravi (caregiver)").
+- [A16] Margaret does not add memories in the MVP. The seed no longer includes memories she authored (`ring_private`, `ruth_unverified`, `maple_unverified`).
 
 ## Read path
 
@@ -36,7 +38,8 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 
 ## Write path
 
-- [R15] Caregiver adds, and Margaret's remember (non-private), run classify and save the memory as `unverified` with `review.state: pending`, `flagged: true`, and an audit `write`.
+- [A15] There is one add endpoint, `addMemory`, for every writer (family and caregiver). The person cannot add a memory in the MVP ([A16]).
+- [R15] A caregiver add runs classify and saves the memory as `unverified` with `review.state: pending`, `flagged: true`, and an audit `write`.
 - Family writes with no proposed supersede are saved `verified` immediately.
 - [A6, A12] When a family member writes or corrects a fact that would supersede another, the API returns `{needs_confirmation: true, old:{memory_id, text, author_name, created_at}}` and saves nothing. The UI shows "Are you sure? This will supersede <old>".
 - [R21] A confirm resend carries `confirm: true` and `confirm_supersedes` set to the old `memory_id` that was shown. The server saves only if classify still proposes that id (for `correct`, the target is that id) and the old memory is still `verified`; otherwise it returns 409 with a fresh needs-confirmation payload, and nothing is saved. On a match, the new memory is saved `verified`, the old one is marked `superseded`, and audit `approve` is written, in one transaction.
@@ -57,7 +60,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - Product: a voice agent for Margaret (early dementia). Family can verify, correct and scope her memories.
 - Demo: Margaret asks a question in the knowledge base and the voice answers; "How did it know this?" opens a trace of the question, the answer and each memory (who added it, when, status, scores); a caregiver adds a fact; the system finds conflicts (vector search + rerank-2.5, binary supersede); any family member sees "this memory will supersede the old one <old>" and confirms or denies.
 - [A4] Margaret speaks to the bot and hears the answer (voice in and out through ElevenLabs).
-- [A8] Client tools, which are the interface to the ElevenLabs teammate: `recall {query}` returns `{turn_id, memories[{text, status}]}`; `remember {text, private?}` returns `{saved, needs_family_review}`. After the agent answers, call `POST /api/turns/:turn_id/answer`. Remember returning no candidates is consistent with [A3] (stricter, not a conflict).
+- [A8, A16] The interface to the ElevenLabs teammate is `recall {query}`, which returns `{turn_id, memories[{text, status}]}`. There is no `remember` tool in the MVP. After the agent answers, call `POST /api/turns/:turn_id/answer`.
 
 ## Process
 
@@ -68,7 +71,7 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [A8] Mica owns the project spec. The ElevenLabs integration is built by another teammate from the spec, so the tool contract above must stay complete and standalone.
 - [R9] Scenario tests run against `MONGODB_DB=keepsake_test` with its own `memory_vec` index, never the demo DB. `seed.py` upserts demo logins into `people`.
 - [D3] The MVP has no leakage test.
-- [D6] Deferred items go in NEXT_STEPS (see the "Out of scope" section of `SPEC-memory.md`): leakage test, `kind`, live push notifications, an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.
+- [D6] Deferred items go in `docs/NEXT_STEPS.md` (see also the "Out of scope" section of `SPEC-memory.md`): Margaret's `remember` tool ([A16]), leakage test, `kind`, live push notifications, an LLM classifier if Q1 lands on rerank-only, related/unrelated labels, time-series turns.
 - [D7] Follow MongoDB best practices.
 
 ## Open questions
@@ -92,3 +95,5 @@ Current decisions, grouped by topic. Each item is what holds now. IDs in bracket
 - [Q8] Answered by [A9]: all memory logic is in the Next.js client.
 - [Q9] Answered by [A11]: topic guidance is hardcoded in the prompt ([D5] stands).
 - The brief and early demo flow said family can "expire" memories, the system labels "supersedes/related/unrelated", and only the family admin confirms. Replaced by [A10], [A14] and [A12].
+- [R4] Memories Margaret created herself had scope `family`, were unverified and flagged, never proposed a supersede, and private wishes stayed private and verified. Replaced by [A16] (Margaret does not add memories in the MVP).
+- [A8] The voice contract included a `remember {text, private?}` tool. Replaced by [A16]; `remember` moves to `docs/NEXT_STEPS.md`.
