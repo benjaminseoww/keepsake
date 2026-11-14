@@ -67,7 +67,7 @@ describe("createMemory: family", () => {
   it("#12 no supersede: saved verified with schema_version 1, source with name (A15) and audit write", async () => {
     facts = [{ text: "Margaret's favourite biscuits are ginger snaps" }];
     const r = (await w.createMemory(anna, { text: "x", scope: "family" })) as import("@/lib/writes").SavedWrite;
-    expect(r).toMatchObject({ saved: true, needs_family_review: false, status: "verified", scope: "family", from: { name: "Anna", role: "family" }, event_start: null, event_end: null });
+    expect(r).toMatchObject({ saved: true, needs_family_review: false, status: "verified", scope: "family", from: { name: "Anna", role: "family" }, text: "Margaret's favourite biscuits are ginger snaps", event_start: null, event_end: null });
     expect(byId(r.memory_id)).toMatchObject({ schema_version: 1, source: { user_id: "anna", name: "Anna", role: "family" }, embedding: [0.5] });
     expect(f.store.audit_log.at(-1)).toMatchObject({ action: "write", actor: { user_id: "anna", name: "Anna", role: "family" } });
   });
@@ -81,7 +81,7 @@ describe("createMemory: family", () => {
     expect(f.store.memories.length).toBe(n);
 
     const r = (await w.createMemory(anna, { text: "x", confirm: true, confirm_supersedes: dinner.toString() })) as import("@/lib/writes").SavedWrite;
-    expect(r).toMatchObject({ saved: true, status: "verified", supersedes: dinner.toString(), audit_action: "approve", event_start: "2026-11-15T00:00:00.000Z" });
+    expect(r).toMatchObject({ saved: true, status: "verified", supersedes: dinner.toString(), audit_action: "approve", text: "Anna is bringing dinner at 7pm on Sat Nov 14, not 6", event_start: "2026-11-15T00:00:00.000Z" });
     expect(byId(dinner).status).toBe("superseded");
     expect(byId(r.memory_id)).toMatchObject({ supersedes: dinner, event_start: new Date("2026-11-15T00:00:00Z"), review: { state: "approved", decided_by: "anna" } });
   });

@@ -34,7 +34,8 @@ export type NeedsConfirmation = { needs_confirmation: true; old: OldMemory };
 export type SavedWrite = {
   saved: true; needs_confirmation: false; needs_family_review: boolean;
   memory_id: string; status: string; scope: Scope; from: From;
-  event_start: string | null; event_end: string | null;
+  // The stored text, after validate's rewrite ("tomorrow" becomes "on Sun Nov 15").
+  text: string; event_start: string | null; event_end: string | null;
   proposed_supersedes?: string | null; supersedes?: string | null; audit_action: "write" | "approve" | "verify";
   message?: string | null; candidates: Candidate[];
 };
@@ -196,7 +197,7 @@ async function saveFact(s: Session, scope: Scope, p: Plan, session: ClientSessio
     schema_version: SCHEMA_VERSION, person_id: s.person_id, text: fact.text, scope, source: actor(s),
     embedding: c.embedding, created_at: new Date(), ...dateFields(fact),
   };
-  const out = { saved: true as const, needs_confirmation: false as const, scope, from: from(s), ...dates(fact) };
+  const out = { saved: true as const, needs_confirmation: false as const, scope, from: from(s), text: fact.text, ...dates(fact) };
 
   if (kind === "pending") {
     // Caregiver: saved unverified for family review, whatever classify found (R15).

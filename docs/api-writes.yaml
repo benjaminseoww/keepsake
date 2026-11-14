@@ -212,6 +212,7 @@ paths:
                     from:
                       name: Ravi
                       role: caregiver
+                    text: "Physio is every second Tuesday now, not every week"
                     event_start: null
                     event_end: null
                     audit_action: write
@@ -236,7 +237,8 @@ paths:
                     from:
                       name: Anna
                       role: family
-                    event_start: null
+                    text: "Anna is bringing dinner at 7pm on Sat Nov 14, not 6"
+                    event_start: "2026-11-15T00:00:00.000Z"
                     event_end: null
                     proposed_supersedes: "672e00000000000000000002"
                     supersedes: "672e00000000000000000002"
@@ -261,6 +263,7 @@ paths:
                     from:
                       name: Anna
                       role: family
+                    text: "Margaret's favourite biscuits are ginger snaps"
                     event_start: null
                     event_end: null
                     audit_action: write
@@ -388,6 +391,7 @@ paths:
                     from:
                       name: Anna
                       role: family
+                    text: "Physio is every second Tuesday now, not every week"
                     event_start: null
                     event_end: null
                     proposed_supersedes: "672e00000000000000000001"
@@ -995,7 +999,7 @@ components:
     SavedWrite:
       type: object
       additionalProperties: false
-      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, from, event_start, event_end, candidates]
+      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, from, text, event_start, event_end, candidates]
       properties:
         saved:
           type: boolean
@@ -1013,6 +1017,9 @@ components:
           $ref: "#/components/schemas/Scope"
         from:
           $ref: "#/components/schemas/From"
+        text:
+          type: string
+          description: The text as stored, after validate rewrote it (for example "tomorrow" becomes "on Sun Nov 15"). Show this to the writer.
         event_start:
           type: [string, "null"]
           format: date-time

@@ -42,7 +42,7 @@ async function run(write: () => Promise<WriteResult | BatchResult>, text: string
     }
     if (r.needs_confirmation) return { kind: "confirm", old: r.old, text, scope };
     revalidatePath("/dashboard");
-    return { kind: "saved", message: r.needs_family_review ? "Sent to family for review." : "Saved." };
+    return { kind: "saved", message: r.needs_family_review ? `Sent to family for review: "${r.text}"` : `Saved: "${r.text}"` };
   } catch (e) {
     // The memory changed since the prompt: ask again about whatever is proposed now (R21).
     if (e instanceof ConfirmMismatch) {
