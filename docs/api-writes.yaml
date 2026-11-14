@@ -31,8 +31,23 @@ info:
     `expires_at` (A10).
 
     Supersede detection (`classify`) is still open (Q1). It sits behind
-    one function in `client/lib/writes.ts` with a placeholder rerank-2.5
-    cutoff, so the method can change without changing this contract.
+    one function (`client/lib/classify.ts`, called from `writes.ts`)
+    with a placeholder rerank-2.5 cutoff and an optional Gemini judge
+    that is off by default, so the method can change without changing
+    this contract.
+
+    Validation (A17, A18): every add and correct runs `validate` first.
+    Empty text or text over 500 characters is 400. Gemini then splits
+    the note into facts and rewrites relative dates ("tomorrow" becomes
+    "on Sun Nov 15"). Clear dates are stored as `event_start` /
+    `event_end` (BSON dates; recall never filters on them, A10) and
+    returned as ISO strings. If Gemini or Voyage is unavailable, the
+    write returns 503 `unavailable` and nothing is saved.
+
+    Server actions: the dashboard's server actions call the same
+    functions but have no HTTP status. They turn the documented bodies
+    into form state; an error comes back as its `{error:{code,message}}`
+    code and message, not a status.
 
     Readable scopes (A17): Margaret (recall only) and family both read
     `family` and `caregiver`; a caregiver reads `caregiver`.
@@ -133,6 +148,19 @@ paths:
           becomes `superseded`, and audit `approve` is written. Returns
           201. Otherwise 409 with a fresh `needs_confirmation` payload,
           and nothing is saved.
+        - **Family, `confirm: true`, nothing left to supersede:** the
+          conflict is gone, so the memory is saved `verified` with audit
+          `write` (201), not a 409.
+        - **Multi-fact note (A17):** when the text splits into more than
+          one fact, the response is a `BatchResult` and each fact is
+          classified on its own. If no fact needs confirmation, all are
+          saved in one transaction (201, `saved: true`). If any fact
+          needs confirmation, nothing is saved (200, `saved: false`) and
+          each fact carries its own result. The client resends `facts[]`
+          (the split facts, not the raw text) with `confirm: true` and a
+          `confirm_supersedes` on each fact it confirmed, so the second
+          call is not re-split. A one-fact note always uses the
+          single-fact shapes.
         - **Family, no supersede:** saved `verified` with audit `write`.
           Returns 201.
 
@@ -160,7 +188,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SavedWrite"
+                oneOf:
+                  - $ref: "#/components/schemas/SavedWrite"
+                  - $ref: "#/components/schemas/BatchResult"
               examples:
                 caregiver_saved_pending:
                   summary: Ravi's physio note, waiting for family review. The proposed old memory is caregiver-scoped, so Ravi may see it (R22).
@@ -174,6 +204,8 @@ paths:
                     from:
                       name: Ravi
                       role: caregiver
+                    event_start: null
+                    event_end: null
                     audit_action: write
                     proposed_supersedes: "672e00000000000000000001"
                     message: This will supersede Physio visit is every Tuesday at 2pm
@@ -196,6 +228,8 @@ paths:
                     from:
                       name: Anna
                       role: family
+                    event_start: null
+                    event_end: null
                     proposed_supersedes: "672e00000000000000000002"
                     supersedes: "672e00000000000000000002"
                     message: This will supersede Anna is bringing dinner on Saturday Nov 14 at 6pm
@@ -219,6 +253,8 @@ paths:
                     from:
                       name: Anna
                       role: family
+                    event_start: null
+                    event_end: null
                     audit_action: write
                     proposed_supersedes: null
                     message: null
@@ -228,7 +264,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NeedsConfirmation"
+                oneOf:
+                  - $ref: "#/components/schemas/NeedsConfirmation"
+                  - $ref: "#/components/schemas/BatchResult"
               examples:
                 family_needs_confirmation:
                   summary: Anna's dinner-time change, first submit
@@ -247,6 +285,10 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/ConfirmMismatch"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
   /api/memories/{id}:
     delete:
@@ -301,7 +343,10 @@ paths:
         audit `approve` is written; returns 201. If `{id}` is no longer
         `verified` by then, 409 with a fresh `needs_confirmation`
         payload. 404 if `{id}` isn't a verified memory the caller can
-        read.
+        read (this includes an `unverified` memory). The replacement
+        text is validated like an add and must be one fact: a
+        correction that splits into more than one fact is 400. Gemini or
+        Voyage down is 503, and nothing is saved.
       parameters:
         - $ref: "#/components/parameters/MemoryId"
       requestBody:
@@ -335,6 +380,8 @@ paths:
                     from:
                       name: Anna
                       role: family
+                    event_start: null
+                    event_end: null
                     proposed_supersedes: "672e00000000000000000001"
                     supersedes: "672e00000000000000000001"
                     audit_action: approve
@@ -365,6 +412,10 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ConfirmMismatch"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
   /api/memories/{id}/review:
     post:
@@ -642,17 +693,42 @@ components:
             error:
               code: conflict
               message: This review has already been decided
+    Unavailable:
+      description: Gemini (validation) or Voyage (embedding, rerank) is unavailable. Nothing was saved; the client may retry.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unavailable
+              message: Could not check this note right now. Please try again.
+    ServerError:
+      description: Unexpected failure, for example a transaction that could not commit. It rolled back and nothing was saved, so resending the same request is safe.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: server_error
+              message: Something went wrong. Nothing was saved. Please try again.
     ConfirmMismatch:
       description: |
         `confirm` was true but classify no longer proposes
         `confirm_supersedes`, or the old memory is no longer
         `verified` (R21). Nothing is saved. The body is a fresh
-        `NeedsConfirmation` payload, not the `{error:{code,message}}`
-        shape.
+        `NeedsConfirmation` payload (a `BatchResult` with `saved: false`
+        for a multi-fact resend), not the `{error:{code,message}}`
+        shape. If the old memory was replaced and nothing new conflicts,
+        the body is the error shape with code `conflict`.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/NeedsConfirmation"
+            oneOf:
+              - $ref: "#/components/schemas/NeedsConfirmation"
+              - $ref: "#/components/schemas/BatchResult"
+              - $ref: "#/components/schemas/Error"
           examples:
             different_proposal:
               summary: Classify now proposes a different verified memory
@@ -700,7 +776,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unavailable, server_error]
             message:
               type: string
 
@@ -755,11 +831,26 @@ components:
     AddMemoryRequest:
       type: object
       additionalProperties: false
-      required: [text]
+      description: Send `text` on the first submit. On a confirm resend of a multi-fact note, send `facts` (the split facts from the BatchResult) instead.
+      anyOf:
+        - required: [text]
+        - required: [facts]
       properties:
         text:
           type: string
           minLength: 1
+          maxLength: 500
+        facts:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: |
+            Confirm resend of a multi-fact note: the facts exactly as
+            the BatchResult returned them, each with its own
+            `confirm_supersedes` when the user confirmed that fact. The
+            server does not re-split them.
+          items:
+            $ref: "#/components/schemas/FactInput"
         scope:
           $ref: "#/components/schemas/Scope"
           description: |
@@ -781,9 +872,79 @@ components:
         properties:
           confirm:
             const: true
-        required: [confirm]
+        required: [confirm, text]
+        not:
+          required: [facts]
       then:
         required: [confirm_supersedes]
+
+    FactInput:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+        event_start:
+          type: [string, "null"]
+          format: date-time
+        event_end:
+          type: [string, "null"]
+          format: date-time
+        confirm_supersedes:
+          $ref: "#/components/schemas/ObjectId"
+
+    NotSaved:
+      type: object
+      additionalProperties: false
+      description: A fact in a batch that was not saved because another fact needs confirmation.
+      required: [saved, needs_confirmation]
+      properties:
+        saved:
+          type: boolean
+          const: false
+        needs_confirmation:
+          type: boolean
+          const: false
+
+    BatchFactResult:
+      type: object
+      additionalProperties: false
+      required: [text, event_start, event_end, result]
+      properties:
+        text:
+          type: string
+          description: The fact as validate split and rewrote it (absolute dates).
+        event_start:
+          type: [string, "null"]
+          format: date-time
+        event_end:
+          type: [string, "null"]
+          format: date-time
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/SavedWrite"
+            - $ref: "#/components/schemas/NeedsConfirmation"
+            - $ref: "#/components/schemas/NotSaved"
+
+    BatchResult:
+      type: object
+      additionalProperties: false
+      description: Response for a note that split into more than one fact (A17).
+      required: [batch, saved, facts]
+      properties:
+        batch:
+          type: boolean
+          const: true
+        saved:
+          type: boolean
+          description: true when every fact was saved in one transaction; false when any fact needs confirmation and nothing was saved.
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatchFactResult"
 
     Source:
       type: object
@@ -812,7 +973,7 @@ components:
     SavedWrite:
       type: object
       additionalProperties: false
-      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, from, candidates]
+      required: [saved, needs_confirmation, needs_family_review, memory_id, status, scope, from, event_start, event_end, candidates]
       properties:
         saved:
           type: boolean
@@ -830,6 +991,14 @@ components:
           $ref: "#/components/schemas/Scope"
         from:
           $ref: "#/components/schemas/From"
+        event_start:
+          type: [string, "null"]
+          format: date-time
+          description: Date resolved from the text by validate (stored as a BSON date). Null when there is no clear date.
+        event_end:
+          type: [string, "null"]
+          format: date-time
+          description: End of a range or an all-day event. Null otherwise.
         proposed_supersedes:
           description: |
             The proposed old memory_id. Omitted (or null) when there
@@ -970,6 +1139,7 @@ components:
         text:
           type: string
           minLength: 1
+          maxLength: 500
           description: Replacement text, re-embedded on save.
         confirm:
           type: boolean
