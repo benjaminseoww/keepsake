@@ -24,11 +24,10 @@ db.createCollection("memories", {
       status:     { enum: ["unverified", "verified", "superseded", "retracted"] },
       source: {
         bsonType: "object",
-        required: ["user_id", "name", "role"],
+        required: ["role", "user_id"],
         properties: {
-          user_id: { bsonType: "string" },
-          name:    { bsonType: "string" },
-          role:    { enum: ["person", "family", "caregiver"] }
+          role:    { enum: ["person", "family", "caregiver"] },
+          user_id: { bsonType: "string" }
         }
       },
       supersedes: { bsonType: ["objectId", "null"] },
@@ -137,11 +136,10 @@ db.createCollection("audit_log", {
       action: { enum: ["write", "verify", "correct", "approve", "deny", "forget", "expire", "rescope"] },
       actor: {
         bsonType: "object",
-        required: ["user_id", "name", "role"],
+        required: ["role", "user_id"],
         properties: {
-          user_id: { bsonType: "string" },
-          name:    { bsonType: "string" },
-          role:    { enum: ["person", "family", "caregiver", "system"] }
+          role:    { enum: ["person", "family", "caregiver", "system"] },
+          user_id: { bsonType: "string" }
         }
       },
       old_id: { bsonType: ["objectId", "null"] },

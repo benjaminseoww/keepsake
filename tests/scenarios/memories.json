@@ -13,7 +13,9 @@
   "glasses": "Reading glasses are usually on the kitchen windowsill",
   "lisbon_album": "Margaret likes looking at the photo album from the 1998 Lisbon trip",
   "radio": "Margaret prefers the radio on CBC Music in the afternoon",
+  "ring_private": "I want to give my mother's ring to Leo, not to Anna",
   "assisted_living": "Anna and her brother are discussing whether Margaret should move to assisted living",
+  "ruth_unverified": "Margaret said her sister Ruth visited yesterday",
   "garbage_day": "Garbage and recycling go out Wednesday night",
   "ravi_holidays": "Ravi does not come on statutory holidays",
   "phone_charger": "Margaret's phone charger is in the top kitchen drawer",
@@ -23,6 +25,7 @@
   "ravi_newspaper_pending": "Ravi brings the newspaper with him on Monday visits",
   "cardigan_pending": "Margaret's favourite cardigan is the green one in the hall closet",
   "garbage_neighbour_pending": "Joan's son takes the garbage bins to the curb for Margaret",
+  "maple_unverified": "Margaret said she lives on Maple Avenue",
   "ravi_9am_old": "Ravi visits on weekday mornings at 9",
   "key_doormat_denied": "The spare key is under the front doormat"
 }

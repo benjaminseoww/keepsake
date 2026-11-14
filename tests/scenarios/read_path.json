@@ -47,14 +47,30 @@
       "note": "Retrieval must find the fact so the hardcoded guidance can apply. The reply must not say he died."
     },
     {
+      "id": "R06_private_visible_to_owner",
+      "as": "margaret",
+      "query": "Who should get my mother's ring?",
+      "must_include": [
+        "ring_private"
+      ]
+    },
+    {
+      "id": "R07_private_hidden_from_family",
+      "as": "anna",
+      "query": "Who should get the ring?",
+      "must_exclude": [
+        "ring_private"
+      ]
+    },
+    {
       "id": "R08_family_note_hidden_from_caregiver",
       "as": "ravi",
       "query": "Is Margaret moving anywhere?",
       "must_exclude": [
         "assisted_living",
-        "address"
-      ],
-      "note": "Ravi is a caregiver, so family-scoped memories must not appear."
+        "address",
+        "ring_private"
+      ]
     },
     {
       "id": "R09_caregiver_sees_caregiver_scope",
@@ -67,14 +83,14 @@
     {
       "id": "R10_unverified_marked",
       "as": "margaret",
-      "query": "Does Ravi bring the newspaper?",
+      "query": "Did Ruth visit?",
       "must_include": [
-        "ravi_newspaper_pending"
+        "ruth_unverified"
       ],
       "expect_status": {
-        "ravi_newspaper_pending": "unverified"
+        "ruth_unverified": "unverified"
       },
-      "note": "The pending newspaper note may appear, but only as unverified, not as fact."
+      "note": "Reply should say 'you mentioned', not state it as fact."
     },
     {
       "id": "R11_off_topic",
