@@ -42,12 +42,25 @@ describe("classify", () => {
     expect(r.proposed_supersedes).toBeNull();
   });
 
-  it("an optional judge can override the cutoff; a failing judge falls back to the cutoff", async () => {
+  it("the judge only adds supersedes, never removes one; a failing judge falls back to the cutoff", async () => {
     const f = fakeDb();
     f.onAggregate(() => [{ _id: a, text: "t", scope: "family" }]);
     const base = { db: f.db, embed: async () => [[0]], rerank: async () => [{ index: 0, relevance_score: 0.99 }] };
-    expect((await classify("x", "m", writer, { ...base, judge: async () => [false] })).proposed_supersedes).toBeNull();
+    expect((await classify("x", "m", writer, { ...base, judge: async () => [false] })).proposed_supersedes!.equals(a)).toBe(true);
     expect((await classify("x", "m", writer, { ...base, judge: async () => { throw new Error("down"); } })).proposed_supersedes!.equals(a)).toBe(true);
+  });
+
+  it("the judge catches a contradiction below the cutoff, and skips candidates under JUDGE_MIN", async () => {
+    const f = fakeDb();
+    f.onAggregate(() => [{ _id: a, text: "Margaret has two grandchildren, Leo and Maya", scope: "family" }, { _id: b, text: "Anna calls every evening around 7", scope: "family" }]);
+    const seen: string[][] = [];
+    const r = await classify("Margaret has no grandkids", "m", writer, {
+      db: f.db, embed: async () => [[0]], rerank: async () => [{ index: 0, relevance_score: 0.648 }, { index: 1, relevance_score: 0.249 }],
+      judge: async (_t, c) => { seen.push(c.map((x) => x.text)); return c.map(() => true); },
+    });
+    expect(r.proposed_supersedes!.equals(a)).toBe(true);
+    expect(seen).toEqual([["Margaret has two grandchildren, Leo and Maya"]]);
+    expect(r.candidates[1].supersedes).toBe(false);
   });
 
   describe("time-stripped check", () => {

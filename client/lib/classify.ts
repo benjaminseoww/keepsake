@@ -23,8 +23,12 @@ export const SUPERSEDE_CUTOFF = Number(process.env.SUPERSEDE_CUTOFF ?? 0.8);
 // 0.55 sits in that gap. Off with STRIPPED_CUTOFF=off.
 // Costs one more rerank call, only when the new note has a time or date.
 export const STRIPPED_CUTOFF = process.env.STRIPPED_CUTOFF === "off" ? null : Number(process.env.STRIPPED_CUTOFF ?? 0.55);
-// Optional Gemini judge on top of the reranked candidates (A18 Q1). Off until tested.
-export const USE_GEMINI_JUDGE = process.env.CLASSIFY_GEMINI === "1";
+// Gemini judge for contradictions and replacements the rerank score can't see, e.g. "Margaret has no grandkids"
+// scored 0.648 against "Margaret has two grandchildren, Leo and Maya" (below 0.8). It only looks at candidates
+// scoring at least JUDGE_MIN that the rules above did not already mark, and it can only add a supersede, never
+// remove one. On by default; CLASSIFY_GEMINI=0 turns it off. Costs one Gemini call when a candidate qualifies.
+export const USE_GEMINI_JUDGE = process.env.CLASSIFY_GEMINI !== "0";
+export const JUDGE_MIN = Number(process.env.JUDGE_MIN ?? 0.5);
 
 export const NUM_CANDIDATES = 100;
 export const VECTOR_LIMIT = 20;
@@ -87,7 +91,7 @@ export async function classify(text: string, person_id: string, _writer: Writer,
   const ranked = await withRetry(() => (deps.rerank ?? rerank)(text, hits.map((h) => h.text), MAX_CANDIDATES, 5000), "rerank", deps.retry);
   const top = ranked.map((r) => ({ hit: hits[r.index], score: r.relevance_score }));
 
-  let verdicts = top.map((c) => c.score >= SUPERSEDE_CUTOFF);
+  const verdicts = top.map((c) => c.score >= SUPERSEDE_CUTOFF);
   const strippedScores: (number | null)[] = top.map(() => null);
   const cutoff = deps.stripped_cutoff !== undefined ? deps.stripped_cutoff : STRIPPED_CUTOFF;
   const mine = stripTimes(text);
@@ -106,10 +110,11 @@ export async function classify(text: string, person_id: string, _writer: Writer,
     }
   }
   const judge = deps.judge ?? (USE_GEMINI_JUDGE ? geminiJudge : null);
-  if (judge) {
+  const ask = top.map((c, i) => i).filter((i) => !verdicts[i] && top[i].score >= JUDGE_MIN);
+  if (judge && ask.length) {
     try {
-      const j = await judge(text, top.map((c) => ({ text: c.hit.text })));
-      if (j.length === top.length) verdicts = j;
+      const j = await judge(text, ask.map((i) => ({ text: top[i].hit.text })));
+      if (j.length === ask.length) ask.forEach((i, k) => { if (j[k]) verdicts[i] = true; });
     } catch (e) {
       console.error("classify: Gemini judge failed, using rerank cutoff", (e as Error).name);
     }
@@ -128,7 +133,7 @@ export async function classify(text: string, person_id: string, _writer: Writer,
 async function geminiJudge(text: string, candidates: { text: string }[]): Promise<boolean[]> {
   const list = candidates.map((c, i) => `${i}. ${c.text}`).join("\n");
   const out = await generateJson<{ supersedes: boolean[] }>(
-    `A new note about Margaret was written. For each existing note, answer true only if the new note replaces it (the same fact or event with a new value, time or place). Different events on the same day, or additions, are false.\n\nNew note: """${text}"""\n\nExisting notes:\n${list}\n\nReturn one boolean per existing note, in order.`,
+    `A family member wrote a new note about the person they care for. For each existing note, answer true if the new note replaces it or contradicts it, so the existing note would no longer be true. Examples that are true: the same event at a new time or place, a changed routine, or a denial such as "has no grandchildren" against "has two grandchildren". Different events on the same day, related facts that can both be true, and additions are false.\n\nNew note: """${text}"""\n\nExisting notes:\n${list}\n\nReturn one boolean per existing note, in order.`,
     { type: "OBJECT", properties: { supersedes: { type: "ARRAY", items: { type: "BOOLEAN" } } }, required: ["supersedes"] },
   );
   return out.supersedes;

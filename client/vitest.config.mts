@@ -8,5 +8,5 @@ export default defineConfig({
       "@": path.resolve(__dirname),
     },
   },
-  test: { include: ["tests/**/*.test.ts"], environment: "node" },
+  test: { include: ["tests/**/*.test.ts"], environment: "node", env: { CLASSIFY_GEMINI: "0" } },
 });
