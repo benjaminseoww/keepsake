@@ -150,8 +150,7 @@ Deferred from the MVP. One list; do not add more copies in other docs.
 
 ## Team
 
-Names from the git history of this repo:
-
 - Emily Lin
 - Benjamin
 - Christopher Lam
+- Tom Cao
