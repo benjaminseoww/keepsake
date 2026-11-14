@@ -1,6 +1,6 @@
-# Keepsake write-path demo (feat/write-validate)
+# Keepsake write-path demo
 
-Every step below passed in the QA run on Nov 14, 2026 (icaro, branch `feat/write-validate` @ b5f8ccd, database `keepsake_test`). Steps that did not pass reliably are listed at the end under "Not for the demo".
+The steps below were first proven in the QA run on 14 Nov 2026 (icaro, then on `feat/write-validate`, database `keepsake_test`). They still apply on `main`. The "Not for the demo" notes at the end reflect the current code, including the 0.55 time-stripped cutoff and the year check on relative dates.
 
 ## Setup
 
@@ -26,7 +26,7 @@ q() {  # usage: q anna POST /api/memories '{"text":"..."}'
 ## Pacing and budget
 
 - **Gemini budget: 6 calls** (steps 2, 3, 4, 7, 9a, 9b). The free tier is about 20 calls a day. Every other step costs 0 Gemini calls.
-- **Space Gemini/Voyage writes about 70 seconds apart.** Back-to-back writes sometimes return 503 "The memory check is unavailable right now" (likely a Voyage rate limit), and each failed write still uses up a Gemini call. Steps marked ⏱ call Voyage; wait about 70 s before each one.
+- **Space Gemini/Voyage writes about 70 seconds apart.** Voyage writes retry on 429, but the free tier is still about 3 requests a minute, and a 503 still burns the Gemini validate call. Steps marked ⏱ call Voyage; wait about 70 s before each one.
 - Read-only steps (review queue, lists) and the 400/403/404 checks can run at any time.
 
 ## Flow
@@ -129,6 +129,6 @@ All are rejected before any Gemini or Voyage call. Use any existing ids.
 
 ## Not for the demo
 
-- **Multi-fact add right after another write.** It intermittently returns 503 "The memory check is unavailable right now" (likely a Voyage rate limit). Wait about 70 s between writes.
-- **"Yesterday" (and other past relative dates).** The same note was resolved to 2026-11-13 once and 2025-11-13 once. Avoid past relative dates in demo text.
-- **A reschedule on Anna's own add expected to trigger "Are you sure?"** "Leo is now coming tomorrow at 7pm, not 6pm" scored 0.785 against the 6pm memory, under the 0.8 cutoff, so both were saved `verified` with no confirmation. Only near-identical text (steps 4, 7) reliably crosses the cutoff today.
+- **Multi-fact add right after another write.** Voyage's free tier is about 3 requests a minute. Writes now retry 429s, but back-to-back adds can still return 503 "The memory check is unavailable right now", and each failed write still uses a Gemini call (validate runs before Voyage). Wait about 70 s between writes that hit Voyage.
+- **"Yesterday" dates are safer than they were, but still worth avoiding live.** Validate now moves a date that landed more than about six months away when the note gave no year, so the 2025-vs-2026 miss should not be stored. The rewrite in the stored text still comes from Gemini, so keep demo wording on explicit days when you can.
+- **A Leo 7pm reschedule should now show "Are you sure?"** The plain rerank cutoff is still 0.8, and "Leo is now coming tomorrow at 7pm, not 6pm" scored 0.785 on that check alone. The time-stripped rerank (cutoff 0.55, on `main`) scored that pair at 0.818, so the confirm prompt should fire. Near-identical wording (steps 4, 7) still crosses the plain cutoff.

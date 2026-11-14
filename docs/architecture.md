@@ -1,145 +1,109 @@
 # Keepsake architecture
 
-Drawn from the code on branch `feat/write-validate` @ b5f8ccd (Nov 14, 2026). Anything not read directly from the code is marked *(inferred)*.
+Verified against `origin/main` @ ba227c9 (14 Nov 2026). Line numbers point at that commit.
 
-## Components
+## Integrations
+
+Which process calls which. The Next.js app is the only service that talks to Voyage, Gemini, ElevenLabs and LangSmith.
 
 ```mermaid
 flowchart LR
   subgraph Browser
-    UI["Dashboard / Login / Trace pages<br/>(client/app)"]
-    Voice["Talk page: voice.tsx<br/>@elevenlabs/react, client tool: recall"]
+    Dash["Dashboard"]
+    Talk["Talk page"]
   end
 
-  subgraph Next["Next.js client :3000 (client/)"]
-    LoginAct["login server action<br/>app/login/actions.ts"]
-    Auth["lib/auth.ts<br/>keepsake_session cookie, JWT verify (AUTH_SECRET)"]
-    MemAPI["/api/memories (GET, POST)<br/>/api/memories/:id (DELETE)<br/>/api/memories/:id/corrections<br/>/api/memories/:id/review<br/>/api/reviews"]
-    TalkAPI["/api/talk/session<br/>/api/talk/recall<br/>/api/turns, /api/turns/:id/answer"]
-    Writes["lib/writes.ts<br/>createMemory, correctMemory, reviewMemory,<br/>listReviews, listMemories, forgetMemory"]
-    Validate["lib/validate.ts<br/>split facts, resolve dates"]
-    Classify["lib/classify.ts<br/>vector search + rerank, cutoff 0.8,<br/>times stripped rerank, cutoff 0.55<br/>(Gemini judge off unless CLASSIFY_GEMINI=1)"]
-    Recall["lib/recall.ts<br/>vector search + rerank, MIN_RERANK_SCORE 0.5"]
-    GeminiLib["lib/gemini.ts"]
-    VoyageLib["lib/voyage.ts"]
-    USClient["lib/userService.ts"]
+  subgraph Next["Next.js app :3000"]
+    App["API routes and server actions"]
   end
 
-  subgraph Backend["User service :4000 (backend/, Fastify)"]
-    BRoutes["POST /auth/login, GET /auth/me,<br/>GET /care-team, POST /users (family admin)"]
+  subgraph Usersvc["User service Fastify :4000"]
+    Auth["login, me, care-team, add users"]
   end
 
-  subgraph Atlas["MongoDB Atlas (MONGODB_DB)"]
-    Memories[("memories<br/>+ memory_vec vector index")]
-    People[("people<br/>logins, bcrypt hashes")]
-    Households[("households<br/>members: role, admin")]
+  subgraph Atlas["MongoDB Atlas"]
+    Mem[("memories + memory_vec")]
+    People[("people")]
+    HH[("households")]
     Audit[("audit_log")]
     Turns[("turns")]
   end
 
-  Voyage["Voyage AI<br/>voyage-3.5 embeddings, rerank-2.5"]
-  Gemini["Google Gemini<br/>gemini-3.5-flash-lite"]
+  Voyage["Voyage AI\nvoyage-3.5 embeddings\nrerank-2.5"]
+  Gemini["Google Gemini\ngemini-3.5-flash-lite"]
   Eleven["ElevenLabs Conversational AI"]
+  LangSmith["LangSmith"]
 
-  UI --> LoginAct --> USClient --> BRoutes
-  UI --> MemAPI
-  MemAPI --> Auth
-  MemAPI --> Writes
-  Writes --> Validate --> GeminiLib --> Gemini
-  Writes --> Classify --> VoyageLib --> Voyage
-  Classify -. optional judge .-> GeminiLib
-  Writes --> Memories
-  Writes --> Audit
-  Writes --> Households
-  Classify --> Memories
-
-  Voice -->|GET signed URL| TalkAPI
-  Voice <-->|audio, tool calls| Eleven
-  Voice -->|recall tool| TalkAPI
-  TalkAPI -->|get-signed-url, xi-api-key| Eleven
-  TalkAPI --> Recall --> VoyageLib
-  Recall --> Memories
-  Recall --> Turns
-  Recall --> Households
-
-  BRoutes --> People
-  BRoutes --> Households
+  Dash --> App
+  Talk -->|"GET /api/talk/session"| App
+  Talk -->|"POST /api/recall, then the turn answer"| App
+  Talk <-->|"audio and the recall tool"| Eleven
+  App --> Auth
+  Auth --> People
+  Auth --> HH
+  App --> Mem
+  App --> Audit
+  App --> Turns
+  App --> HH
+  App -->|"embed and rerank"| Voyage
+  App -->|"validate, caregiver ask, optional classify judge"| Gemini
+  App -->|"get-signed-url"| Eleven
+  App -.->|"after recall and answer, if enabled"| LangSmith
 ```
 
 Notes:
-- The browser never calls the user service; the Next server calls it (`lib/userService.ts`, default `http://127.0.0.1:4000`).
-- The ElevenLabs API key is read only by the Next client, in `app/api/talk/session/route.ts` (`ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`). The backend does not use it. The browser gets a signed URL and talks to ElevenLabs directly; the agent's `recall` tool runs in the browser and calls `/api/talk/recall`.
-- The Gemini key (`GEMINI_API_KEY`) and Voyage key are read only on the Next server.
-- `app/api/talk/remember/route.ts` still exists in the code but is not wired to the voice agent (A16); it is left out of the diagram.
+- The browser never calls the user service. Next does, through `client/lib/userService.ts` (default `http://127.0.0.1:4000`). Login is a server action that sets the `keepsake_session` cookie (`client/app/login/actions.ts`).
+- Dashboard covers family review and memory lists, plus the caregiver briefing and "Ask about …" box (`client/app/dashboard`). Family also has `/trace`. Login is `/login`.
+- The ElevenLabs API key stays on the Next server in `client/app/api/talk/session/route.ts`. The Talk page gets a signed URL, then streams audio and tool calls to ElevenLabs directly (`client/app/talk/voice.tsx`). The agent's only tool, `recall`, runs in the browser and posts to `POST /api/recall` (not `/api/talk/recall`, which is gone). There is no `/api/talk/remember` route.
+- Gemini (`gemini-3.5-flash-lite`, overridable with `GEMINI_MODEL`) and Voyage (`voyage-3.5`, `rerank-2.5`) keys are also read only on the Next server (`client/lib/gemini.ts:7`, `client/lib/voyage.ts:4-5`).
+- LangSmith is wired in `client/lib/tracing.ts`. It is off unless `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are set. `POST /api/recall` posts a recall trace after the response (`client/app/api/recall/route.ts`, Next `after()`). The spoken or written answer is traced from `POST /api/turns/:id/answer` once the text has settled.
+- The caregiver briefing is a plain `find` of verified memories, grouped by date. It does not call Voyage or Gemini (`client/lib/briefing.ts:6-7,56-61`).
+- Atlas `memory_vec` is a vectorSearch index on `memories.embedding` (1024 dims, cosine) with filter fields `person_id`, `scope` and `status` (`db/vector_index.json`).
+- Write and list API routes (`client/lib/api.ts:7`) and most pages trust role and `person_id` from the session JWT (`getSession` / `requireSession`). `POST /api/recall`, `/api/talk/session`, the turns routes, and the caregiver ask action re-read name, role and `person_id` from `households.members` (`getMemberSession` in `client/lib/auth.ts:36-45`). The user service re-reads membership on every authenticated request (`backend/src/auth.ts`). That split does not match SPEC R1, which says every request re-reads the role.
 
-## Write path
+## Read and write flow
+
+How a note is embedded and checked for a supersede, and how a question is searched and reranked.
 
 ```mermaid
-sequenceDiagram
-  autonumber
-  actor W as Writer (Anna family / Ravi caregiver)
-  participant API as POST /api/memories
-  participant WR as lib/writes.ts
-  participant V as validate.ts
-  participant G as Gemini
-  participant C as classify.ts
-  participant VY as Voyage
-  participant DB as Atlas memories + audit_log
-  actor F as Family reviewer (Anna)
-
-  W->>API: {text, scope}
-  API->>WR: createMemory(session, input)
-  WR->>WR: role check (family or caregiver, else 403)<br/>scope: caregiver forced for caregivers
-  WR->>V: validate(text)
-  V->>V: empty / >500 chars -> 400 (no Gemini)
-  V->>G: split into facts, resolve relative dates
-  G-->>V: facts[{text, event_start?, event_end?}]
-  loop each fact
-    WR->>C: classify(fact)
-    C->>VY: embed (voyage-3.5, document)
-    C->>DB: $vectorSearch memory_vec<br/>(verified, family+caregiver scopes)
-    C->>VY: rerank-2.5 top 10
-    C-->>WR: candidates, supersede if score >= 0.8,<br/>or times stripped score >= 0.55 with a different time or date
-  end
-  Note over WR,VY: Voyage error -> 503 unavailable, nothing saved
-
-  alt Caregiver writer
-    WR->>DB: insert unverified, flagged, review pending + audit write
-    WR-->>W: 201 needs_family_review (proposal hidden if not readable)
-  else Family, no supersede proposed
-    WR->>DB: insert verified + audit write (one transaction)
-    WR-->>W: 201 saved
-  else Family, supersede proposed
-    WR-->>W: 200 needs_confirmation (single fact)<br/>or batch saved:false + facts_token (multi-fact)
-    W->>API: confirm:true + confirm_supersedes<br/>(batch: facts[] + facts_token, no text)
-    API->>WR: createMemory (facts_token HMAC checked, else 400, no Gemini)
-    WR->>C: classify again
-    alt still proposes the same old memory
-      WR->>DB: transaction: old -> superseded, new verified,<br/>review approved, audit approve
-      WR-->>W: 201 saved
-    else proposes a different memory
-      WR-->>W: 409 fresh needs_confirmation
-    end
+flowchart TB
+  subgraph WritePath["Write path"]
+    direction TB
+    W0["POST /api/memories, or a correction"] --> W1["Gemini validate: split facts and resolve dates"]
+    W1 --> W2["embed voyage-3.5, input_type document"]
+    W2 --> W3["Atlas $vectorSearch memory_vec\nnumCandidates 100, limit 20\nfilter: person_id, status verified,\nscope in family or caregiver"]
+    W3 --> W4["rerank-2.5, top 10"]
+    W4 --> W5["Supersede if the plain score is at least 0.8,\nor a time-stripped rerank score is at least 0.55\nand the time or date differs.\nIf CLASSIFY_GEMINI=1, the Gemini judge\nreplaces those verdicts"]
+    W5 --> W6{"Proposed supersede?"}
+    W6 -->|yes| W7["Family: 200 needs_confirmation, nothing saved yet\nCaregiver: insert unverified, review pending"]
+    W6 -->|no| W8["Family: insert verified\nCaregiver: insert unverified, review pending"]
   end
 
-  F->>API: GET /api/reviews (family only)
-  API-->>F: pending items with "This will supersede (old note)"
-  alt confirm
-    F->>WR: POST /api/memories/:id/review {decision: confirm}
-    WR->>DB: transaction: new verified, old superseded if still verified,<br/>audit approve (or verify if no proposal)
-  else deny
-    F->>WR: POST /api/memories/:id/review {decision: deny}
-    WR->>DB: new retracted, old untouched, audit deny
+  subgraph ReadPath["Read path"]
+    direction TB
+    R0["POST /api/recall"] --> R1["embed voyage-3.5, input_type query"]
+    R1 --> R2["Atlas $vectorSearch memory_vec\nnumCandidates 100, limit 20\nfilter: person_id, status verified,\nscope by role"]
+    R2 --> R3["rerank-2.5, top 5"]
+    R3 --> R4["keep hits with rerank score at least 0.5"]
+    R4 --> R5["return memories and insert a turns row"]
+    R5 --> R6["Voice: the agent answers from those memories\nCaregiver ask: Gemini writes a short answer"]
   end
-  Note over F,DB: Deciding an already-decided review -> 409
 ```
 
-Corrections (`POST /api/memories/:id/corrections`, family only) follow the same validate step, skip classify, and always ask to supersede `:id`; the confirm resend saves the new memory with the old memory's scope.
+Notes:
+- Validate runs first, before any embed (`client/lib/validate.ts`, called from `createMemory` in `client/lib/writes.ts:235`). It splits the note into at most 10 facts and resolves relative dates in `America/Toronto`. Empty or over-500-character text returns 400 with no Gemini call. A confirm resend of a multi-fact note sends a signed `facts_token` and skips the Gemini split. Dates more than about six months from today, when the note gave no year, are shifted in code (`fixYears` in `client/lib/validate.ts:113-122`).
+- Classify embeds each fact as a document and reuses that vector on insert (`client/lib/classify.ts:76,124`, `client/lib/writes.ts:198`). It always searches verified family and caregiver memories for that person, regardless of the writer's role (`client/lib/classify.ts:79-81`). What the writer is shown is then filtered to their readable scopes (`client/lib/writes.ts:168-176`).
+- Vector search uses `numCandidates` 100 and `limit` 20 (`client/lib/classify.ts:29-30`, `client/lib/recall.ts:14-15`). The index filter fields are `person_id`, `status` and `scope`.
+- Write-side rerank keeps the top 10 (`MAX_CANDIDATES` in `client/lib/classify.ts:31,87`). A memory supersedes if the plain `rerank-2.5` score is at least `SUPERSEDE_CUTOFF` 0.8 (`client/lib/classify.ts:17,90`). When the new note has a time or date, classify reranks again with times and dates replaced by placeholders (`client/lib/strip-times.ts`). A stripped score at or above `STRIPPED_CUTOFF` 0.55, plus a different time, date or `event_start`, also counts as a supersede (`client/lib/classify.ts:25,93-106`). Both checks are on by default. `CLASSIFY_GEMINI=1` turns on a Gemini judge that, if it succeeds, *replaces* the cutoff verdicts rather than adding to them (`client/lib/classify.ts:27,108-115`). It is off by default.
+- Family: a proposed supersede returns 200 and saves nothing until `confirm: true` with the matching id, which re-runs classify. A mismatch is 409 with a fresh payload. A caregiver add always inserts `unverified` with `review.state: pending`, even when classify proposed a supersede (`client/lib/writes.ts:202-206,250`). Family then confirm or deny in the review queue. A Voyage failure after retries is 503 and nothing is saved (`client/lib/writes.ts:158`, `withRetry` in `client/lib/voyage.ts:51-70`).
+- Corrections (`POST /api/memories/:id/corrections`, family only) still run validate and embed, but skip classify and always ask to supersede `:id`. The new memory inherits the old memory's scope.
+- Read-side search is one function, `recall()`, behind `POST /api/recall` (`client/app/api/recall/route.ts`, `client/lib/recall.ts:96`). Margaret's voice agent, the caregiver ask box, and any signed-in household member all use it. Scopes are applied inside the `$vectorSearch` filter: person and family read `family` and `caregiver`; caregiver reads `caregiver` only (`readableScopes` in `client/lib/recall.ts:18-19,37`). Status is `verified` only (`client/lib/recall.ts:35-37`). This matches SPEC D-A1 / R16 as now written in `docs/specs/DECISIONS.md`, not the older "verified plus unverified" line in `docs/specs/WORKSPLIT.md`.
+- Read-side rerank keeps the top 5 (`client/lib/recall.ts:16,64`), then drops hits below `MIN_RERANK_SCORE` 0.5 (`client/lib/recall.ts:10,91-92`). If rerank fails, recall falls back to vector order with `MIN_VECTOR_SCORE` 0.7 and at most 5 hits (`client/lib/recall.ts:66-72`). If the vector index is missing, it falls back to a keyword `find`. An embed failure returns no memories. Recall does not retry Voyage (voice has to stay fast). Kept memories and scores are written to `turns`. The voice prompt says to answer only from those memories (`client/lib/prompt.ts`). The caregiver ask box then has Gemini write one or two sentences from the same list, or a fixed "I don't have that written down" line if nothing passed the cutoff (`client/lib/ask.ts:44-50`).
 
 ## Roles
 
-Each request's role comes from the session JWT (`client/lib/auth.ts`). The user service issues that JWT at login after checking `people` and `households.members`.
+Three roles, stored on `households.members`. Readable scopes are in `client/lib/memories.ts:9-13`, with `private` stripped before any search (`client/lib/recall.ts:18-19`).
 
-- **Family** (Anna, David). Add memories (saved verified, or after an "Are you sure?" when they would replace one), correct and forget memories, see the review queue and confirm or deny pending notes. Reads family and caregiver scope. A family admin (Anna) can also add household members through the user service (`POST /users`).
-- **Caregiver** (Ravi). Add memories only. Every caregiver note is saved unverified in caregiver scope and waits for family review. Reads caregiver scope only, and in lists sees only their own notes. Correct, review, forget and the review queue return 403.
-- **Person** (Margaret). Talks to the voice agent, which recalls her memories through `/api/talk/recall` (family and caregiver scope, verified memories only: `lib/recall.ts:36`). Cannot add, list or review memories (403).
+- **Family** (Anna, admin; David is also in the seed household). Add memories, saved `verified`, or after an "Are you sure?" when classify proposes a supersede. Correct and forget memories, see the review queue, and confirm or deny pending caregiver notes. Read family and caregiver scope. Can call `POST /api/recall`. Can view `/trace`. A family admin can add household members (`POST /users` on the user service).
+- **Caregiver** (Ravi). Add notes only: always `caregiver` scope, always `unverified`, waiting for family review. The dashboard briefing and ask box, and `POST /api/recall`, search verified caregiver-scope memories. The notes list and `GET /api/memories` show only that caregiver's own notes (`client/lib/writes.ts:423-432`). Correct, review, forget, the review queue and `/trace` return 403.
+- **Person** (Margaret). Uses the Talk page only. The voice agent calls `POST /api/recall` and receives verified family and caregiver memories. She cannot add, list or review memories (403). The agent cannot save what she says. It suggests telling family (`client/lib/prompt.ts:18`).
