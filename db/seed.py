@@ -33,7 +33,7 @@ anna = {"role": "family", "user_id": "anna", "name": "Anna"}
 ravi = {"role": "caregiver", "user_id": "ravi", "name": "Ravi"}
 NAMES = {"anna": "Anna", "ravi": "Ravi", "david": "David", "margaret": "Margaret"}
 
-for name in ["memories", "households", "audit_log", "replay_runs"]:
+for name in ["memories", "households", "audit_log", "replay_runs", "topic_guidance"]:
     db[name].delete_many({})
 
 db.households.insert_one({
@@ -153,6 +153,15 @@ for m in memories:
             db.audit_log.insert_one({"schema_version": SCHEMA_VERSION, "memory_id": _id, "action": "deny",
                                      "actor": {"role": "family", "user_id": by, "name": NAMES[by]},
                                      "old_id": None, "new_id": None, "at": at})
+
+db.topic_guidance.insert_one({
+    "person_id": "margaret",
+    "topic": "husband",
+    "guidance": "Answer factually and gently from her memories: her husband George passed away in 2022. Keep it short and don't add details. Then offer to call her daughter Anna, or talk about how she is feeling.",
+    "related_memory_ids": [ids["husband"]],
+    "set_by": "anna",
+    "updated_at": now,
+})
 
 counts = {s: db.memories.count_documents({"status": s}) for s in ["verified", "unverified", "superseded", "retracted"]}
 pending = db.memories.count_documents({"review.state": "pending"})

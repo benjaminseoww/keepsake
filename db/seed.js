@@ -72,7 +72,7 @@ const husband = db.memories.findOne({ demo_tag: "husband" });
 db.topic_guidance.insertOne({
   person_id: "margaret",
   topic: "husband",
-  guidance: "Answer factually and gently from her memories: George passed away in 2022. Keep it short, don't add details, then offer the Lisbon photo album.",
+  guidance: "Answer factually and gently from her memories: her husband George passed away in 2022. Keep it short and don't add details. Then offer to call her daughter Anna, or talk about how she is feeling.",
   related_memory_ids: [husband._id],
   set_by: "anna",
   updated_at: now
