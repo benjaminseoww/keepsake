@@ -3,7 +3,8 @@
 // The vector index is created separately in Atlas (see vector_index.json).
 
 const drop = (name) => { if (db.getCollectionNames().includes(name)) db[name].drop(); };
-["memories", "people", "households", "audit_log", "replay_runs"].forEach(drop);
+// people is not dropped: it holds logins (auth only).
+["memories", "households", "audit_log", "replay_runs"].forEach(drop);
 
 db.createCollection("memories", {
   validator: { $jsonSchema: {
@@ -64,6 +65,26 @@ db.memories.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 db.memories.createIndex({ person_id: 1, status: 1, flagged: 1 });
 // Admin review queue: pending items for a household, newest first.
 db.memories.createIndex({ person_id: 1, "review.state": 1, created_at: -1 });
+
+// people: auth only. Roles live in households.members, so the two can't disagree.
+// Created only if missing, so re-running this file keeps existing logins.
+if (!db.getCollectionNames().includes("people")) {
+  db.createCollection("people", {
+    validator: { $jsonSchema: {
+      bsonType: "object",
+      required: ["user_id", "email", "password_hash"],
+      properties: {
+        user_id:       { bsonType: "string" },
+        name:          { bsonType: "string" },
+        email:         { bsonType: "string" },
+        password_hash: { bsonType: "string" }
+      }
+    }},
+    validationAction: "error"
+  });
+}
+db.people.createIndex({ user_id: 1 }, { unique: true });
+db.people.createIndex({ email: 1 }, { unique: true });
 
 // One doc per household: the person plus everyone who helps them.
 // Read together with every role check, so stored together.

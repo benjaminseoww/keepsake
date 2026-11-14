@@ -28,3 +28,9 @@ Voyage usage: `voyage-3.5` with `input_type="document"` for stored memories and 
 - `retracted`: admin denied it. Kept for audit, never retrieved.
 
 The admin never classifies. They approve or deny the override the system proposed.
+
+## Users and roles
+
+- `people` is auth only: `user_id`, `name`, `email`, `password_hash`, with unique indexes on `user_id` and `email`. `schema.js` never drops it.
+- `households` owns membership and roles: one doc per person, members embedded, unique index on `members.user_id`.
+- Login reads `people` once. Every request after that resolves role through `households` (see `whoami` in `queries.js`).
